@@ -14,11 +14,11 @@ permissions:
 
 jobs:
   tagpr:
-    name: Tag PR
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: write
+      issues: write
       pull-requests: write
     outputs:
       tag: ${{ steps.tagpr.outputs.tag }}
@@ -32,11 +32,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   goreleaser:
-    name: GoReleaser
     needs: tagpr
     if: needs.tagpr.outputs.tag != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
@@ -58,6 +57,7 @@ jobs:
         uses: goreleaser/goreleaser-action@ec59f474b9834571250b370d4735c50f8e2d1e29 # v7.0.0
         with:
           args: release --clean
+          version: "~> v2"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
