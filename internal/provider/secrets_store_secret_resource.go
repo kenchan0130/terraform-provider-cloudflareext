@@ -259,7 +259,7 @@ func (r *SecretsStoreSecretResource) Delete(ctx context.Context, req resource.De
 
 	apiPath := fmt.Sprintf("/accounts/%s/secrets_store/stores/%s/secrets/%s",
 		r.client.AccountID, data.StoreID.ValueString(), data.ID.ValueString())
-	if err := doRequestNoBody(ctx, r.client, http.MethodDelete, apiPath); err != nil {
+	if err := doRequestNoBody(ctx, r.client, apiPath); err != nil {
 		resp.Diagnostics.AddError("Failed to delete secret", err.Error())
 		return
 	}

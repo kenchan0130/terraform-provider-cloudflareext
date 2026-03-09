@@ -46,7 +46,7 @@ func doRequest[T any](ctx context.Context, client *CloudflareClient, method, pat
 	if err != nil {
 		return nil, fmt.Errorf("API request failed: %w", err)
 	}
-	defer httpResp.Body.Close()
+	defer func() { _ = httpResp.Body.Close() }()
 
 	respBody, err := io.ReadAll(httpResp.Body)
 	if err != nil {
@@ -76,10 +76,10 @@ func doRequest[T any](ctx context.Context, client *CloudflareClient, method, pat
 	return &cfResp.Result, nil
 }
 
-// doRequestNoBody performs a Cloudflare API request that does not return a parsed body (e.g. DELETE).
-func doRequestNoBody(ctx context.Context, client *CloudflareClient, method, path string) error {
+// doRequestNoBody performs a Cloudflare API DELETE request that does not return a parsed body.
+func doRequestNoBody(ctx context.Context, client *CloudflareClient, path string) error {
 	url := fmt.Sprintf("%s%s", client.BaseURL, path)
-	httpReq, err := http.NewRequestWithContext(ctx, method, url, nil)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create HTTP request: %w", err)
 	}
@@ -89,7 +89,7 @@ func doRequestNoBody(ctx context.Context, client *CloudflareClient, method, path
 	if err != nil {
 		return fmt.Errorf("API request failed: %w", err)
 	}
-	defer httpResp.Body.Close()
+	defer func() { _ = httpResp.Body.Close() }()
 
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
 		respBody, _ := io.ReadAll(httpResp.Body)

@@ -115,7 +115,7 @@ func TestDoRequestNoBody_Success(t *testing.T) {
 		AccountID:  "test-account",
 	}
 
-	err := doRequestNoBody(context.Background(), client, http.MethodDelete, "/test")
+	err := doRequestNoBody(context.Background(), client, "/test")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -137,7 +137,7 @@ func TestDoRequestNoBody_Error(t *testing.T) {
 		AccountID:  "test-account",
 	}
 
-	err := doRequestNoBody(context.Background(), client, http.MethodDelete, "/test")
+	err := doRequestNoBody(context.Background(), client, "/test")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

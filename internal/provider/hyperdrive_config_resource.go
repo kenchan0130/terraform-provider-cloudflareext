@@ -270,7 +270,7 @@ func (r *HyperdriveConfigResource) Delete(ctx context.Context, req resource.Dele
 	}
 
 	apiPath := fmt.Sprintf("/accounts/%s/hyperdrive/configs/%s", r.client.AccountID, data.ID.ValueString())
-	if err := doRequestNoBody(ctx, r.client, http.MethodDelete, apiPath); err != nil {
+	if err := doRequestNoBody(ctx, r.client, apiPath); err != nil {
 		resp.Diagnostics.AddError("Failed to delete Hyperdrive config", err.Error())
 		return
 	}

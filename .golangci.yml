@@ -43,6 +43,12 @@ linters:
     goconst:
       min-len: 3
       min-occurrences: 3
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
   exclusions:
     rules:
       - path: _test\.go
