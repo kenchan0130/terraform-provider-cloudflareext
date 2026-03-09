@@ -7,7 +7,6 @@ on:
       - go.mod
       - go.sum
       - .golangci.yml
-      - .github/workflows/lint.yml
 
 concurrency:
   group: lint-${{ github.head_ref || github.ref }}
@@ -34,34 +33,3 @@ jobs:
       - uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7.0.1
         with:
           version: latest
-
-  actionlint:
-    name: actionlint
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          persist-credentials: false
-      - uses: reviewdog/action-actionlint@0d952c597ef8459f634d7145b0b044a9699e5e43 # v1.71.0
-        with:
-          reporter: github-pr-review
-
-  ghalint:
-    name: ghalint
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    env:
-      GHALINT_VERSION: v1.5.5
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          persist-credentials: false
-      - run: |
-          VERSION="${GHALINT_VERSION#v}"
-          curl -sSfL "https://github.com/suzuki-shunsuke/ghalint/releases/download/${GHALINT_VERSION}/ghalint_${VERSION}_linux_amd64.tar.gz" | tar xz -C /usr/local/bin
-          ghalint run

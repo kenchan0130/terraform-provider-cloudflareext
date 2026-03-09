@@ -1,0 +1,21 @@
+service/hyperdrive:
+  - changed-files:
+      - any-glob-to-any-file: internal/services/hyperdrive/**/*
+
+service/secretsstore:
+  - changed-files:
+      - any-glob-to-any-file: internal/services/secretsstore/**/*
+
+provider:
+  - changed-files:
+      - any-glob-to-any-file: internal/provider/**/*
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file: .github/**/*
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "*.md"
+          - docs/**/*
