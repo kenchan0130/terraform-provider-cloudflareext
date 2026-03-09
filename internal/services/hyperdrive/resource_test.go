@@ -35,7 +35,9 @@ type apiHyperdriveOriginResponse struct {
 
 // apiHyperdriveCachingResponse represents the caching object in a Hyperdrive API response.
 type apiHyperdriveCachingResponse struct {
-	Disabled bool `json:"disabled"`
+	Disabled             bool  `json:"disabled"`
+	MaxAge               int64 `json:"max_age"`
+	StaleWhileRevalidate int64 `json:"stale_while_revalidate"`
 }
 
 // apiHyperdriveResponse matches the Cloudflare Hyperdrive API response format.
@@ -56,7 +58,9 @@ func newHyperdriveResponse(id, name string, origin apiHyperdriveOriginResponse) 
 		Name:   name,
 		Origin: origin,
 		Caching: apiHyperdriveCachingResponse{
-			Disabled: false,
+			Disabled:             false,
+			MaxAge:               60,
+			StaleWhileRevalidate: 15,
 		},
 		CreatedOn:             "2025-01-01T00:00:00Z",
 		ModifiedOn:            "2025-01-01T00:00:00Z",
@@ -362,6 +366,42 @@ resource "cloudflareext_hyperdrive_config" "test" {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "origin.port", "3306"),
 					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "origin.scheme", "mysql"),
+				),
+			},
+		},
+	})
+}
+
+func TestUnitHyperdriveConfig_Caching(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	setupHyperdriveMock()
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "my-hyperdrive"
+  origin = {
+    host     = "db.example.com"
+    database = "mydb"
+    user     = "dbuser"
+    password_wo = "dbpass"
+  }
+  caching = {
+    disabled               = false
+    max_age                = 60
+    stale_while_revalidate = 15
+  }
+}
+`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "caching.disabled", "false"),
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "caching.max_age", "60"),
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "caching.stale_while_revalidate", "15"),
 				),
 			},
 		},

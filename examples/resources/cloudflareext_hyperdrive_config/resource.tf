@@ -8,4 +8,9 @@ resource "cloudflareext_hyperdrive_config" "example" {
     password_wo = var.db_password
     scheme      = "postgresql"
   }
+  caching = {
+    disabled               = false
+    max_age                = 60
+    stale_while_revalidate = 15
+  }
 }
