@@ -5,12 +5,14 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/provider/shared"
 	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/hyperdrive"
 	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/secretsstore/secret"
@@ -117,8 +119,19 @@ func (p *CloudflareExtProvider) Configure(ctx context.Context, req provider.Conf
 		baseURL = config.BaseURL.ValueString()
 	}
 
+	retryClient := retryablehttp.NewClient()
+	retryClient.HTTPClient = http.DefaultClient
+	retryClient.Logger = nil
+	retryClient.RequestLogHook = func(_ retryablehttp.Logger, req *http.Request, retryNumber int) {
+		tflog.Warn(req.Context(), "retrying API request", map[string]any{
+			"method":       req.Method,
+			"url":          req.URL.String(),
+			"retry_number": retryNumber,
+		})
+	}
+
 	client := &shared.CloudflareClient{
-		HTTPClient: http.DefaultClient,
+		HTTPClient: retryClient.StandardClient(),
 		BaseURL:    baseURL,
 		APIToken:   apiToken,
 		AccountID:  accountID,

@@ -12,10 +12,15 @@ import (
 	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/testutil"
 )
 
+// testStoreCreateRequest matches the Cloudflare Secrets Store API create request format.
+// The API accepts an array of create requests.
+// See: https://developers.cloudflare.com/api/resources/secrets_store/subresources/stores/methods/create/
 type testStoreCreateRequest struct {
 	Name string `json:"name"`
 }
 
+// testStoreResponse matches the Cloudflare Secrets Store API response format.
+// See: https://developers.cloudflare.com/api/resources/secrets_store/subresources/stores/methods/list/
 type testStoreResponse struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
@@ -26,6 +31,9 @@ type testStoreResponse struct {
 func setupStoreStoreMock() {
 	baseURL := "https://api.cloudflare.example.com/client/v4/accounts/test-account-id/secrets_store/stores"
 
+	// POST /accounts/{account_id}/secrets_store/stores
+	// Request body is an array: [{"name": "..."}]
+	// Response result is an array: [{"id": "...", "name": "...", "created": "...", "modified": "..."}]
 	httpmock.RegisterResponder(http.MethodPost, baseURL,
 		func(req *http.Request) (*http.Response, error) {
 			var body []testStoreCreateRequest
@@ -41,8 +49,8 @@ func setupStoreStoreMock() {
 					{
 						ID:       "store-001",
 						Name:     body[0].Name,
-						Created:  "2025-01-01T00:00:00Z",
-						Modified: "2025-01-01T00:00:00Z",
+						Created:  "2025-01-01T00:00:00.000000Z",
+						Modified: "2025-01-01T00:00:00.000000Z",
 					},
 				},
 			}
@@ -50,6 +58,8 @@ func setupStoreStoreMock() {
 		},
 	)
 
+	// GET /accounts/{account_id}/secrets_store/stores
+	// Response result is an array of all stores (no single-GET endpoint).
 	httpmock.RegisterResponder(http.MethodGet, baseURL,
 		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[[]testStoreResponse]{
 			Success: true,
@@ -57,21 +67,22 @@ func setupStoreStoreMock() {
 				{
 					ID:       "store-001",
 					Name:     "my-store",
-					Created:  "2025-01-01T00:00:00Z",
-					Modified: "2025-01-01T00:00:00Z",
+					Created:  "2025-01-01T00:00:00.000000Z",
+					Modified: "2025-01-01T00:00:00.000000Z",
 				},
 			},
 		}),
 	)
 
+	// DELETE /accounts/{account_id}/secrets_store/stores/{store_id}
 	httpmock.RegisterResponder(http.MethodDelete, baseURL+"/store-001",
 		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[testStoreResponse]{
 			Success: true,
 			Result: testStoreResponse{
 				ID:       "store-001",
 				Name:     "my-store",
-				Created:  "2025-01-01T00:00:00Z",
-				Modified: "2025-01-01T00:00:00Z",
+				Created:  "2025-01-01T00:00:00.000000Z",
+				Modified: "2025-01-01T00:00:00.000000Z",
 			},
 		}),
 	)
@@ -95,8 +106,8 @@ resource "cloudflareext_secrets_store" "test" {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					testutil.CheckResourceAttr("cloudflareext_secrets_store.test", "id", "store-001"),
 					testutil.CheckResourceAttr("cloudflareext_secrets_store.test", "name", "my-store"),
-					testutil.CheckResourceAttr("cloudflareext_secrets_store.test", "created", "2025-01-01T00:00:00Z"),
-					testutil.CheckResourceAttr("cloudflareext_secrets_store.test", "modified", "2025-01-01T00:00:00Z"),
+					testutil.CheckResourceAttr("cloudflareext_secrets_store.test", "created", "2025-01-01T00:00:00.000000Z"),
+					testutil.CheckResourceAttr("cloudflareext_secrets_store.test", "modified", "2025-01-01T00:00:00.000000Z"),
 				),
 			},
 		},
@@ -146,8 +157,8 @@ resource "cloudflareext_secrets_store" "test" {
 										{
 											ID:       "store-002",
 											Name:     body[0].Name,
-											Created:  "2025-01-02T00:00:00Z",
-											Modified: "2025-01-02T00:00:00Z",
+											Created:  "2025-01-02T00:00:00.000000Z",
+											Modified: "2025-01-02T00:00:00.000000Z",
 										},
 									},
 								})
@@ -160,8 +171,8 @@ resource "cloudflareext_secrets_store" "test" {
 									{
 										ID:       "store-002",
 										Name:     "my-new-store",
-										Created:  "2025-01-02T00:00:00Z",
-										Modified: "2025-01-02T00:00:00Z",
+										Created:  "2025-01-02T00:00:00.000000Z",
+										Modified: "2025-01-02T00:00:00.000000Z",
 									},
 								},
 							}),
@@ -257,8 +268,8 @@ resource "cloudflareext_secrets_store" "test" {
 											{
 												ID:       "store-003",
 												Name:     body[0].Name,
-												Created:  "2025-01-03T00:00:00Z",
-												Modified: "2025-01-03T00:00:00Z",
+												Created:  "2025-01-03T00:00:00.000000Z",
+												Modified: "2025-01-03T00:00:00.000000Z",
 											},
 										},
 									}),
@@ -269,8 +280,8 @@ resource "cloudflareext_secrets_store" "test" {
 										{
 											ID:       "store-003",
 											Name:     body[0].Name,
-											Created:  "2025-01-03T00:00:00Z",
-											Modified: "2025-01-03T00:00:00Z",
+											Created:  "2025-01-03T00:00:00.000000Z",
+											Modified: "2025-01-03T00:00:00.000000Z",
 										},
 									},
 								})

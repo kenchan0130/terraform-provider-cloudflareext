@@ -24,16 +24,44 @@ type apiHyperdriveCreateRequest struct {
 	} `json:"origin"`
 }
 
+// apiHyperdriveOriginResponse represents the origin object in a Hyperdrive API response.
+type apiHyperdriveOriginResponse struct {
+	Host     string `json:"host"`
+	Port     int64  `json:"port"`
+	Database string `json:"database"`
+	User     string `json:"user"`
+	Scheme   string `json:"scheme"`
+}
+
+// apiHyperdriveCachingResponse represents the caching object in a Hyperdrive API response.
+type apiHyperdriveCachingResponse struct {
+	Disabled bool `json:"disabled"`
+}
+
+// apiHyperdriveResponse matches the Cloudflare Hyperdrive API response format.
+// See: https://developers.cloudflare.com/api/resources/hyperdrive/subresources/configs/
 type apiHyperdriveResponse struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Origin struct {
-		Host     string `json:"host"`
-		Port     int64  `json:"port"`
-		Database string `json:"database"`
-		User     string `json:"user"`
-		Scheme   string `json:"scheme"`
-	} `json:"origin"`
+	ID                    string                       `json:"id"`
+	Name                  string                       `json:"name"`
+	Origin                apiHyperdriveOriginResponse  `json:"origin"`
+	Caching               apiHyperdriveCachingResponse `json:"caching"`
+	CreatedOn             string                       `json:"created_on"`
+	ModifiedOn            string                       `json:"modified_on"`
+	OriginConnectionLimit int                          `json:"origin_connection_limit"`
+}
+
+func newHyperdriveResponse(id, name string, origin apiHyperdriveOriginResponse) apiHyperdriveResponse {
+	return apiHyperdriveResponse{
+		ID:     id,
+		Name:   name,
+		Origin: origin,
+		Caching: apiHyperdriveCachingResponse{
+			Disabled: false,
+		},
+		CreatedOn:             "2025-01-01T00:00:00Z",
+		ModifiedOn:            "2025-01-01T00:00:00Z",
+		OriginConnectionLimit: 60,
+	}
 }
 
 func setupHyperdriveMock() {
@@ -46,23 +74,13 @@ func setupHyperdriveMock() {
 			}
 			resp := shared.CloudflareResponse[apiHyperdriveResponse]{
 				Success: true,
-				Result: apiHyperdriveResponse{
-					ID:   "hd-test-id-001",
-					Name: body.Name,
-					Origin: struct {
-						Host     string `json:"host"`
-						Port     int64  `json:"port"`
-						Database string `json:"database"`
-						User     string `json:"user"`
-						Scheme   string `json:"scheme"`
-					}{
-						Host:     body.Origin.Host,
-						Port:     body.Origin.Port,
-						Database: body.Origin.Database,
-						User:     body.Origin.User,
-						Scheme:   body.Origin.Scheme,
-					},
-				},
+				Result: newHyperdriveResponse("hd-test-id-001", body.Name, apiHyperdriveOriginResponse{
+					Host:     body.Origin.Host,
+					Port:     body.Origin.Port,
+					Database: body.Origin.Database,
+					User:     body.Origin.User,
+					Scheme:   body.Origin.Scheme,
+				}),
 			}
 			return httpmock.NewJsonResponse(200, resp)
 		},
@@ -72,23 +90,13 @@ func setupHyperdriveMock() {
 		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-test-id-001",
 		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveResponse]{
 			Success: true,
-			Result: apiHyperdriveResponse{
-				ID:   "hd-test-id-001",
-				Name: "my-hyperdrive",
-				Origin: struct {
-					Host     string `json:"host"`
-					Port     int64  `json:"port"`
-					Database string `json:"database"`
-					User     string `json:"user"`
-					Scheme   string `json:"scheme"`
-				}{
-					Host:     "db.example.com",
-					Port:     5432,
-					Database: "mydb",
-					User:     "dbuser",
-					Scheme:   "postgresql",
-				},
-			},
+			Result: newHyperdriveResponse("hd-test-id-001", "my-hyperdrive", apiHyperdriveOriginResponse{
+				Host:     "db.example.com",
+				Port:     5432,
+				Database: "mydb",
+				User:     "dbuser",
+				Scheme:   "postgresql",
+			}),
 		}),
 	)
 
@@ -101,23 +109,13 @@ func setupHyperdriveMock() {
 			}
 			resp := shared.CloudflareResponse[apiHyperdriveResponse]{
 				Success: true,
-				Result: apiHyperdriveResponse{
-					ID:   "hd-test-id-001",
-					Name: body.Name,
-					Origin: struct {
-						Host     string `json:"host"`
-						Port     int64  `json:"port"`
-						Database string `json:"database"`
-						User     string `json:"user"`
-						Scheme   string `json:"scheme"`
-					}{
-						Host:     body.Origin.Host,
-						Port:     body.Origin.Port,
-						Database: body.Origin.Database,
-						User:     body.Origin.User,
-						Scheme:   body.Origin.Scheme,
-					},
-				},
+				Result: newHyperdriveResponse("hd-test-id-001", body.Name, apiHyperdriveOriginResponse{
+					Host:     body.Origin.Host,
+					Port:     body.Origin.Port,
+					Database: body.Origin.Database,
+					User:     body.Origin.User,
+					Scheme:   body.Origin.Scheme,
+				}),
 			}
 			return httpmock.NewJsonResponse(200, resp)
 		},
@@ -196,23 +194,13 @@ resource "cloudflareext_hyperdrive_config" "test" {
 							"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-test-id-001",
 							httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveResponse]{
 								Success: true,
-								Result: apiHyperdriveResponse{
-									ID:   "hd-test-id-001",
-									Name: "my-hyperdrive-updated",
-									Origin: struct {
-										Host     string `json:"host"`
-										Port     int64  `json:"port"`
-										Database string `json:"database"`
-										User     string `json:"user"`
-										Scheme   string `json:"scheme"`
-									}{
-										Host:     "db.example.com",
-										Port:     5432,
-										Database: "mydb",
-										User:     "dbuser",
-										Scheme:   "postgresql",
-									},
-								},
+								Result: newHyperdriveResponse("hd-test-id-001", "my-hyperdrive-updated", apiHyperdriveOriginResponse{
+									Host:     "db.example.com",
+									Port:     5432,
+									Database: "mydb",
+									User:     "dbuser",
+									Scheme:   "postgresql",
+								}),
 							}),
 						)
 						updatedGetRegistered = true
@@ -324,23 +312,13 @@ func TestUnitHyperdriveConfig_CustomPort(t *testing.T) {
 			}
 			return httpmock.NewJsonResponse(200, shared.CloudflareResponse[apiHyperdriveResponse]{
 				Success: true,
-				Result: apiHyperdriveResponse{
-					ID:   "hd-test-id-002",
-					Name: body.Name,
-					Origin: struct {
-						Host     string `json:"host"`
-						Port     int64  `json:"port"`
-						Database string `json:"database"`
-						User     string `json:"user"`
-						Scheme   string `json:"scheme"`
-					}{
-						Host:     body.Origin.Host,
-						Port:     body.Origin.Port,
-						Database: body.Origin.Database,
-						User:     body.Origin.User,
-						Scheme:   body.Origin.Scheme,
-					},
-				},
+				Result: newHyperdriveResponse("hd-test-id-002", body.Name, apiHyperdriveOriginResponse{
+					Host:     body.Origin.Host,
+					Port:     body.Origin.Port,
+					Database: body.Origin.Database,
+					User:     body.Origin.User,
+					Scheme:   body.Origin.Scheme,
+				}),
 			})
 		},
 	)
@@ -349,23 +327,13 @@ func TestUnitHyperdriveConfig_CustomPort(t *testing.T) {
 		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-test-id-002",
 		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveResponse]{
 			Success: true,
-			Result: apiHyperdriveResponse{
-				ID:   "hd-test-id-002",
-				Name: "mysql-hyperdrive",
-				Origin: struct {
-					Host     string `json:"host"`
-					Port     int64  `json:"port"`
-					Database string `json:"database"`
-					User     string `json:"user"`
-					Scheme   string `json:"scheme"`
-				}{
-					Host:     "mysql.example.com",
-					Port:     3306,
-					Database: "mydb",
-					User:     "dbuser",
-					Scheme:   "mysql",
-				},
-			},
+			Result: newHyperdriveResponse("hd-test-id-002", "mysql-hyperdrive", apiHyperdriveOriginResponse{
+				Host:     "mysql.example.com",
+				Port:     3306,
+				Database: "mydb",
+				User:     "dbuser",
+				Scheme:   "mysql",
+			}),
 		}),
 	)
 

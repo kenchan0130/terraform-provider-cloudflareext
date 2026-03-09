@@ -4,9 +4,9 @@ import "github.com/hashicorp/terraform-plugin-framework/types"
 
 // configModel is the Terraform resource data model.
 type configModel struct {
-	ID     types.String  `tfsdk:"id"`
-	Name   types.String  `tfsdk:"name"`
-	Origin *originModel  `tfsdk:"origin"`
+	ID     types.String `tfsdk:"id"`
+	Name   types.String `tfsdk:"name"`
+	Origin *originModel `tfsdk:"origin"`
 }
 
 // originModel represents the origin (database connection) configuration.
