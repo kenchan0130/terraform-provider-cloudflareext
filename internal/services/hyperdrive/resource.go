@@ -54,9 +54,9 @@ func (r *configResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				Description: "The name of the Hyperdrive configuration.",
 				Required:    true,
 			},
-			"origin":                 originSchemaAttribute(),
-			"caching":                cachingSchemaAttribute(),
-			"mtls":                   mtlsSchemaAttribute(),
+			"origin":                  originSchemaAttribute(),
+			"caching":                 cachingSchemaAttribute(),
+			"mtls":                    mtlsSchemaAttribute(),
 			"origin_connection_limit": originConnectionLimitSchemaAttribute(),
 		},
 	}
