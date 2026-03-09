@@ -3,6 +3,11 @@ version: "2"
 run:
   timeout: 3m
 
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
 linters:
   default: none
   enable:
@@ -15,8 +20,6 @@ linters:
     - gocritic
     - gocyclo
     - godot
-    - gofmt
-    - goimports
     - gosec
     - gosimple
     - govet
