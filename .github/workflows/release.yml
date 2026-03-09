@@ -17,6 +17,9 @@ jobs:
     name: Tag PR
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
     outputs:
       tag: ${{ steps.tagpr.outputs.tag }}
     steps:
@@ -32,6 +35,8 @@ jobs:
     if: needs.tagpr.outputs.tag != ''
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
