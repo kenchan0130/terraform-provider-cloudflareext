@@ -56,19 +56,19 @@ func (p *CloudflareExtProvider) Schema(_ context.Context, _ provider.SchemaReque
 		Attributes: map[string]schema.Attribute{
 			"api_token": schema.StringAttribute{
 				Description: "The Cloudflare API token. " +
-					"Can also be set via the CLOUDFLARE_API_TOKEN environment variable.",
+					"Can also be set via the `CLOUDFLARE_API_TOKEN` environment variable.",
 				Optional:  true,
 				Sensitive: true,
 			},
 			"account_id": schema.StringAttribute{
 				Description: "The Cloudflare account ID. " +
-					"Can also be set via the CLOUDFLARE_ACCOUNT_ID environment variable.",
+					"Can also be set via the `CLOUDFLARE_ACCOUNT_ID` environment variable.",
 				Optional: true,
 			},
 			"base_url": schema.StringAttribute{
 				Description: "The base URL for the Cloudflare API. " +
-					"Defaults to https://api.cloudflare.com/client/v4. " +
-					"Can also be set via the CLOUDFLARE_API_BASE_URL environment variable.",
+					"Defaults to `https://api.cloudflare.com/client/v4`. " +
+					"Can also be set via the `CLOUDFLARE_API_BASE_URL` environment variable.",
 				Optional: true,
 			},
 		},
@@ -92,7 +92,7 @@ func (p *CloudflareExtProvider) Configure(ctx context.Context, req provider.Conf
 			path.Root("api_token"),
 			"Missing Cloudflare API Token",
 			"The provider requires a Cloudflare API token. "+
-				"Set the api_token attribute or the CLOUDFLARE_API_TOKEN environment variable.",
+				"Set the `api_token` attribute or the `CLOUDFLARE_API_TOKEN` environment variable.",
 		)
 		return
 	}
@@ -106,7 +106,7 @@ func (p *CloudflareExtProvider) Configure(ctx context.Context, req provider.Conf
 			path.Root("account_id"),
 			"Missing Cloudflare Account ID",
 			"The provider requires a Cloudflare account ID. "+
-				"Set the account_id attribute or the CLOUDFLARE_ACCOUNT_ID environment variable.",
+				"Set the `account_id` attribute or the `CLOUDFLARE_ACCOUNT_ID` environment variable.",
 		)
 		return
 	}

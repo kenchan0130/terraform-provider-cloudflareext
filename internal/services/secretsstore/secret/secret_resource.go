@@ -34,7 +34,7 @@ func (r *secretResource) Metadata(_ context.Context, req resource.MetadataReques
 func (r *secretResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Description: "Manages a Cloudflare Secrets Store secret. " +
-			"The secret value is never stored in Terraform state when using value_wo.",
+			"The secret value is never stored in Terraform state when using `value_wo`.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Description: "The unique identifier of the secret.",
@@ -56,9 +56,9 @@ func (r *secretResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			},
 			"value": schema.StringAttribute{
 				Description: "The secret value (legacy). " +
-					"On Terraform 1.11+, use value_wo instead to prevent " +
+					"On Terraform 1.11+, use `value_wo` instead to prevent " +
 					"the value from being stored in state. " +
-					"Exactly one of value or value_wo must be set.",
+					"Exactly one of `value` or `value_wo` must be set.",
 				Optional:  true,
 				Sensitive: true,
 				Validators: []validator.String{
@@ -71,7 +71,7 @@ func (r *secretResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				Description: "The secret value (write-only). " +
 					"This value is never stored in Terraform state. " +
 					"Requires Terraform 1.11 or later. " +
-					"Exactly one of value or value_wo must be set.",
+					"Exactly one of `value` or `value_wo` must be set.",
 				Optional:  true,
 				WriteOnly: true,
 				Validators: []validator.String{
