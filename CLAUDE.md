@@ -22,9 +22,9 @@ internal/
 - **Provider**: `internal/provider/provider.go` - Configuration, resource/data source registration
 - **Shared**: `internal/provider/shared/client.go` - Generic Cloudflare API client with `DoRequest[T]()` / `DoRequestNoBody()`
 - **Resources**:
-  - `cloudflareext_hyperdrive_config` - Hyperdrive database proxy configs (password/password_wo)
-  - `cloudflareext_secrets_store` - Secrets Store container (name is immutable, no update API)
-  - `cloudflareext_secrets_store_secret` - Secrets Store secrets (value/value_wo)
+  - `cloudflareext_hyperdrive_config` - Hyperdrive database proxy configs (`password`/`password_wo`)
+  - `cloudflareext_secrets_store` - Secrets Store container (`name` is immutable, no update API)
+  - `cloudflareext_secrets_store_secret` - Secrets Store secrets (`value`/`value_wo`)
 - **Data Sources**:
   - `cloudflareext_secrets_store` - Look up a Secrets Store by name
 
@@ -33,7 +33,7 @@ internal/
 ```bash
 make build      # Build the provider binary
 make test       # Run unit tests (go vet + go test with race detector)
-make testacc    # Run acceptance tests (requires CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID)
+make testacc    # Run acceptance tests (requires `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`)
 make lint       # Run golangci-lint
 make fmt        # Format code
 make generate   # Generate docs via tfplugindocs
@@ -47,7 +47,7 @@ make install    # Install provider locally for testing
 - Tests use external test packages (`_test` suffix) to ensure clean API boundaries
 - Each service test file has a `setup*Mock()` function that registers CRUD responders
 - Mock responses use `shared.CloudflareResponse[T]` types
-- Tests use `_wo` attributes (password_wo, value_wo) to avoid path expression issues with nested validators
+- Tests use `_wo` attributes (`password_wo`, `value_wo`) to avoid path expression issues with nested validators
 
 ## Key Conventions
 
@@ -60,6 +60,6 @@ make install    # Install provider locally for testing
 - Use absolute paths (`path.MatchRoot(...)`) for cross-attribute validators in nested attributes
 - Version managed in `version` file (read via `//go:embed`)
 - GitHub Actions pinned to commit SHAs with `# vX.Y.Z` comments
-- DCO sign-off required for contributions (`git commit -s`). All commits must have `Signed-off-by` line — the DCO bot will reject PRs with unsigned commits
+- DCO sign-off required for contributions (`git commit -s`). All commits must have a `Signed-off-by` line — the DCO bot will reject PRs with unsigned commits
 - License: Apache 2.0
 - Before creating a pull request, always run `make fmt`, `go generate ./...`, and `make test` to ensure no formatting, generation, or test failures
