@@ -37,13 +37,11 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-    env:
-      GHALINT_VERSION: v1.5.5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
-      - run: |
-          VERSION="${GHALINT_VERSION#v}"
-          curl -sSfL "https://github.com/suzuki-shunsuke/ghalint/releases/download/${GHALINT_VERSION}/ghalint_${VERSION}_linux_amd64.tar.gz" | tar xz -C /usr/local/bin
-          ghalint run
+      - uses: aquaproj/aqua-installer@e2d0136abcf70b2b4a5ef441beae1e19ff3862ec # v3.1.1
+        with:
+          aqua_version: v2.45.0
+      - run: ghalint run
