@@ -54,152 +54,168 @@ func (r *configResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				Description: "The name of the Hyperdrive configuration.",
 				Required:    true,
 			},
-			"origin": schema.SingleNestedAttribute{
-				Description: "The database connection configuration.",
+			"origin":                 originSchemaAttribute(),
+			"caching":                cachingSchemaAttribute(),
+			"mtls":                   mtlsSchemaAttribute(),
+			"origin_connection_limit": originConnectionLimitSchemaAttribute(),
+		},
+	}
+}
+
+func originSchemaAttribute() schema.Attribute {
+	return schema.SingleNestedAttribute{
+		Description: "The database connection configuration.",
+		Required:    true,
+		Attributes: map[string]schema.Attribute{
+			"host": schema.StringAttribute{
+				Description: "The hostname of the database server.",
 				Required:    true,
-				Attributes: map[string]schema.Attribute{
-					"host": schema.StringAttribute{
-						Description: "The hostname of the database server.",
-						Required:    true,
-					},
-					"port": schema.Int64Attribute{
-						Description: "The port number of the database server. Defaults to `5432`.",
-						Optional:    true,
-						Computed:    true,
-						Default:     int64default.StaticInt64(5432),
-					},
-					"database": schema.StringAttribute{
-						Description: "The name of the database to connect to.",
-						Required:    true,
-					},
-					"user": schema.StringAttribute{
-						Description: "The username for database authentication.",
-						Required:    true,
-					},
-					"password": schema.StringAttribute{
-						Description: "The database password (legacy). " +
-							"On Terraform 1.11+, use `password_wo` instead to prevent " +
-							"the password from being stored in state. " +
-							"Exactly one of `password` or `password_wo` must be set.",
-						Optional:  true,
-						Sensitive: true,
-						Validators: []validator.String{
-							stringvalidator.ExactlyOneOf(
-								path.MatchRoot("origin").AtName("password_wo"),
-							),
-						},
-					},
-					"password_wo": schema.StringAttribute{
-						Description: "The database password (write-only). " +
-							"This value is never stored in Terraform state. " +
-							"Requires Terraform 1.11 or later. " +
-							"Exactly one of `password` or `password_wo` must be set.",
-						Optional:  true,
-						WriteOnly: true,
-						Validators: []validator.String{
-							stringvalidator.ExactlyOneOf(
-								path.MatchRoot("origin").AtName("password"),
-							),
-						},
-					},
-					"scheme": schema.StringAttribute{
-						Description: "The connection scheme. Valid values: `postgresql`, `postgres`, `mysql`. " +
-							"Defaults to `\"postgresql\"`.",
-						Optional: true,
-						Computed: true,
-						Default:  stringdefault.StaticString("postgresql"),
-						Validators: []validator.String{
-							stringvalidator.OneOf("postgresql", "postgres", "mysql"),
-						},
-					},
-					"access_client_id": schema.StringAttribute{
-						Description: "The Client ID of the Access token to use when connecting to the origin database.",
-						Optional:    true,
-					},
-					"access_client_secret": schema.StringAttribute{
-						Description: "The Client Secret of the Access token (legacy). " +
-							"On Terraform 1.11+, use `access_client_secret_wo` instead. " +
-							"At most one of `access_client_secret` or `access_client_secret_wo` may be set.",
-						Optional:  true,
-						Sensitive: true,
-						Validators: []validator.String{
-							stringvalidator.ConflictsWith(
-								path.MatchRoot("origin").AtName("access_client_secret_wo"),
-							),
-						},
-					},
-					"access_client_secret_wo": schema.StringAttribute{
-						Description: "The Client Secret of the Access token (write-only). " +
-							"This value is never stored in Terraform state. " +
-							"Requires Terraform 1.11 or later. " +
-							"At most one of `access_client_secret` or `access_client_secret_wo` may be set.",
-						Optional:  true,
-						WriteOnly: true,
-						Validators: []validator.String{
-							stringvalidator.ConflictsWith(
-								path.MatchRoot("origin").AtName("access_client_secret"),
-							),
-						},
-					},
-				},
 			},
-			"caching": schema.SingleNestedAttribute{
-				Description: "The caching configuration for the Hyperdrive.",
+			"port": schema.Int64Attribute{
+				Description: "The port number of the database server. Defaults to `5432`.",
 				Optional:    true,
-				Attributes: map[string]schema.Attribute{
-					"disabled": schema.BoolAttribute{
-						Description: "Whether to disable caching of SQL responses. Defaults to `false`.",
-						Optional:    true,
-						Computed:    true,
-						Default:     booldefault.StaticBool(false),
-					},
-					"max_age": schema.Int64Attribute{
-						Description: "The maximum duration (in seconds) for which items should persist in the cache. " +
-							"Defaults to `60`. Maximum value is `3600`.",
-						Optional: true,
-						Computed: true,
-						Default:  int64default.StaticInt64(60),
-					},
-					"stale_while_revalidate": schema.Int64Attribute{
-						Description: "The number of seconds the cache may serve a stale response while revalidating. " +
-							"Defaults to `15`.",
-						Optional: true,
-						Computed: true,
-						Default:  int64default.StaticInt64(15),
-					},
+				Computed:    true,
+				Default:     int64default.StaticInt64(5432),
+			},
+			"database": schema.StringAttribute{
+				Description: "The name of the database to connect to.",
+				Required:    true,
+			},
+			"user": schema.StringAttribute{
+				Description: "The username for database authentication.",
+				Required:    true,
+			},
+			"password": schema.StringAttribute{
+				Description: "The database password (legacy). " +
+					"On Terraform 1.11+, use `password_wo` instead to prevent " +
+					"the password from being stored in state. " +
+					"Exactly one of `password` or `password_wo` must be set.",
+				Optional:  true,
+				Sensitive: true,
+				Validators: []validator.String{
+					stringvalidator.ExactlyOneOf(
+						path.MatchRoot("origin").AtName("password_wo"),
+					),
 				},
 			},
-			"mtls": schema.SingleNestedAttribute{
-				Description: "The mTLS configuration for connecting to the origin database.",
-				Optional:    true,
-				Attributes: map[string]schema.Attribute{
-					"ca_certificate_id": schema.StringAttribute{
-						Description: "The UUID of a custom CA certificate to use when connecting to the origin database.",
-						Optional:    true,
-					},
-					"mtls_certificate_id": schema.StringAttribute{
-						Description: "The UUID of a custom mTLS client certificate to use when connecting to the origin database.",
-						Optional:    true,
-					},
-					"sslmode": schema.StringAttribute{
-						Description: "The SSL mode to use when connecting to the origin database. " +
-							"Valid values: `require`, `verify-ca`, `verify-full`.",
-						Optional: true,
-						Validators: []validator.String{
-							stringvalidator.OneOf("require", "verify-ca", "verify-full"),
-						},
-					},
+			"password_wo": schema.StringAttribute{
+				Description: "The database password (write-only). " +
+					"This value is never stored in Terraform state. " +
+					"Requires Terraform 1.11 or later. " +
+					"Exactly one of `password` or `password_wo` must be set.",
+				Optional:  true,
+				WriteOnly: true,
+				Validators: []validator.String{
+					stringvalidator.ExactlyOneOf(
+						path.MatchRoot("origin").AtName("password"),
+					),
 				},
 			},
-			"origin_connection_limit": schema.Int64Attribute{
-				Description: "The soft maximum number of connections that Hyperdrive may establish to the origin database. " +
-					"Must be between `5` and `100`.",
+			"scheme": schema.StringAttribute{
+				Description: "The connection scheme. Valid values: `postgresql`, `postgres`, `mysql`. " +
+					"Defaults to `\"postgresql\"`.",
 				Optional: true,
 				Computed: true,
-				Validators: []validator.Int64{
-					int64validator.Between(5, 100),
+				Default:  stringdefault.StaticString("postgresql"),
+				Validators: []validator.String{
+					stringvalidator.OneOf("postgresql", "postgres", "mysql"),
 				},
 			},
+			"access_client_id": schema.StringAttribute{
+				Description: "The Client ID of the Access token to use when connecting to the origin database.",
+				Optional:    true,
+			},
+			"access_client_secret": schema.StringAttribute{
+				Description: "The Client Secret of the Access token (legacy). " +
+					"On Terraform 1.11+, use `access_client_secret_wo` instead. " +
+					"At most one of `access_client_secret` or `access_client_secret_wo` may be set.",
+				Optional:  true,
+				Sensitive: true,
+				Validators: []validator.String{
+					stringvalidator.ConflictsWith(
+						path.MatchRoot("origin").AtName("access_client_secret_wo"),
+					),
+				},
+			},
+			"access_client_secret_wo": schema.StringAttribute{
+				Description: "The Client Secret of the Access token (write-only). " +
+					"This value is never stored in Terraform state. " +
+					"Requires Terraform 1.11 or later. " +
+					"At most one of `access_client_secret` or `access_client_secret_wo` may be set.",
+				Optional:  true,
+				WriteOnly: true,
+				Validators: []validator.String{
+					stringvalidator.ConflictsWith(
+						path.MatchRoot("origin").AtName("access_client_secret"),
+					),
+				},
+			},
+		},
+	}
+}
+
+func cachingSchemaAttribute() schema.Attribute {
+	return schema.SingleNestedAttribute{
+		Description: "The caching configuration for the Hyperdrive.",
+		Optional:    true,
+		Attributes: map[string]schema.Attribute{
+			"disabled": schema.BoolAttribute{
+				Description: "Whether to disable caching of SQL responses. Defaults to `false`.",
+				Optional:    true,
+				Computed:    true,
+				Default:     booldefault.StaticBool(false),
+			},
+			"max_age": schema.Int64Attribute{
+				Description: "The maximum duration (in seconds) for which items should persist in the cache. " +
+					"Defaults to `60`. Maximum value is `3600`.",
+				Optional: true,
+				Computed: true,
+				Default:  int64default.StaticInt64(60),
+			},
+			"stale_while_revalidate": schema.Int64Attribute{
+				Description: "The number of seconds the cache may serve a stale response while revalidating. " +
+					"Defaults to `15`.",
+				Optional: true,
+				Computed: true,
+				Default:  int64default.StaticInt64(15),
+			},
+		},
+	}
+}
+
+func mtlsSchemaAttribute() schema.Attribute {
+	return schema.SingleNestedAttribute{
+		Description: "The mTLS configuration for connecting to the origin database.",
+		Optional:    true,
+		Attributes: map[string]schema.Attribute{
+			"ca_certificate_id": schema.StringAttribute{
+				Description: "The UUID of a custom CA certificate to use when connecting to the origin database.",
+				Optional:    true,
+			},
+			"mtls_certificate_id": schema.StringAttribute{
+				Description: "The UUID of a custom mTLS client certificate to use when connecting to the origin database.",
+				Optional:    true,
+			},
+			"sslmode": schema.StringAttribute{
+				Description: "The SSL mode to use when connecting to the origin database. " +
+					"Valid values: `require`, `verify-ca`, `verify-full`.",
+				Optional: true,
+				Validators: []validator.String{
+					stringvalidator.OneOf("require", "verify-ca", "verify-full"),
+				},
+			},
+		},
+	}
+}
+
+func originConnectionLimitSchemaAttribute() schema.Attribute {
+	return schema.Int64Attribute{
+		Description: "The soft maximum number of connections that Hyperdrive may establish to the origin database. " +
+			"Must be between `5` and `100`.",
+		Optional: true,
+		Computed: true,
+		Validators: []validator.Int64{
+			int64validator.Between(5, 100),
 		},
 	}
 }
