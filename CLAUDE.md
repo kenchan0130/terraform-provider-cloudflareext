@@ -13,7 +13,9 @@ internal/
     provider.go      # Provider configuration (api_token, account_id, base_url)
   services/
     hyperdrive/      # cloudflareext_hyperdrive_config resource
-    secretsstore/    # cloudflareext_secrets_store resource/data source, cloudflareext_secrets_store_secret resource
+    secretsstore/
+      store/         # cloudflareext_secrets_store resource/data source
+      secret/        # cloudflareext_secrets_store_secret resource
   testutil/          # Shared test helpers (provider factories, config helper)
 ```
 

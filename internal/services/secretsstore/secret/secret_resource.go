@@ -1,4 +1,4 @@
-package secretsstore
+package secret
 
 import (
 	"context"
@@ -120,7 +120,7 @@ func (r *secretResource) Configure(_ context.Context, req resource.ConfigureRequ
 	r.client = client
 }
 
-func (r *secretResource) resolveValue(data *secretModel) string {
+func (r *secretResource) resolveValue(data *model) string {
 	if !data.ValueWO.IsNull() && !data.ValueWO.IsUnknown() {
 		return data.ValueWO.ValueString()
 	}
@@ -128,7 +128,7 @@ func (r *secretResource) resolveValue(data *secretModel) string {
 }
 
 func (r *secretResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var data secretModel
+	var data model
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -140,7 +140,7 @@ func (r *secretResource) Create(ctx context.Context, req resource.CreateRequest,
 		return
 	}
 
-	apiReq := apiSecretCreateRequest{
+	apiReq := apiCreateRequest{
 		Name:    data.Name.ValueString(),
 		Value:   r.resolveValue(&data),
 		Scopes:  scopes,
@@ -148,7 +148,7 @@ func (r *secretResource) Create(ctx context.Context, req resource.CreateRequest,
 	}
 
 	apiPath := fmt.Sprintf("/accounts/%s/secrets_store/stores/%s/secrets", r.client.AccountID, data.StoreID.ValueString())
-	result, err := shared.DoRequest[apiSecretResponse](ctx, r.client, http.MethodPost, apiPath, apiReq)
+	result, err := shared.DoRequest[apiResponse](ctx, r.client, http.MethodPost, apiPath, apiReq)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to create secret", err.Error())
 		return
@@ -159,7 +159,7 @@ func (r *secretResource) Create(ctx context.Context, req resource.CreateRequest,
 }
 
 func (r *secretResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	var data secretModel
+	var data model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -167,7 +167,7 @@ func (r *secretResource) Read(ctx context.Context, req resource.ReadRequest, res
 
 	apiPath := fmt.Sprintf("/accounts/%s/secrets_store/stores/%s/secrets/%s",
 		r.client.AccountID, data.StoreID.ValueString(), data.ID.ValueString())
-	result, err := shared.DoRequest[apiSecretResponse](ctx, r.client, http.MethodGet, apiPath, nil)
+	result, err := shared.DoRequest[apiResponse](ctx, r.client, http.MethodGet, apiPath, nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to read secret", err.Error())
 		return
@@ -178,7 +178,7 @@ func (r *secretResource) Read(ctx context.Context, req resource.ReadRequest, res
 }
 
 func (r *secretResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var data secretModel
+	var data model
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -190,7 +190,7 @@ func (r *secretResource) Update(ctx context.Context, req resource.UpdateRequest,
 		return
 	}
 
-	apiReq := apiSecretUpdateRequest{
+	apiReq := apiUpdateRequest{
 		Name:    data.Name.ValueString(),
 		Value:   r.resolveValue(&data),
 		Scopes:  scopes,
@@ -199,7 +199,7 @@ func (r *secretResource) Update(ctx context.Context, req resource.UpdateRequest,
 
 	apiPath := fmt.Sprintf("/accounts/%s/secrets_store/stores/%s/secrets/%s",
 		r.client.AccountID, data.StoreID.ValueString(), data.ID.ValueString())
-	result, err := shared.DoRequest[apiSecretResponse](ctx, r.client, http.MethodPatch, apiPath, apiReq)
+	result, err := shared.DoRequest[apiResponse](ctx, r.client, http.MethodPatch, apiPath, apiReq)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to update secret", err.Error())
 		return
@@ -210,7 +210,7 @@ func (r *secretResource) Update(ctx context.Context, req resource.UpdateRequest,
 }
 
 func (r *secretResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var data secretModel
+	var data model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -224,7 +224,7 @@ func (r *secretResource) Delete(ctx context.Context, req resource.DeleteRequest,
 	}
 }
 
-func (r *secretResource) mapResponseToModel(result *apiSecretResponse, data *secretModel) {
+func (r *secretResource) mapResponseToModel(result *apiResponse, data *model) {
 	data.ID = types.StringValue(result.ID)
 	data.Name = types.StringValue(result.Name)
 	data.Status = types.StringValue(result.Status)

@@ -13,7 +13,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/provider/shared"
 	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/hyperdrive"
-	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/secretsstore"
+	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/secretsstore/secret"
+	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/secretsstore/store"
 )
 
 var _ provider.Provider = &CloudflareExtProvider{}
@@ -130,13 +131,13 @@ func (p *CloudflareExtProvider) Configure(ctx context.Context, req provider.Conf
 func (p *CloudflareExtProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		hyperdrive.NewConfigResource,
-		secretsstore.NewStoreResource,
-		secretsstore.NewSecretResource,
+		store.NewStoreResource,
+		secret.NewSecretResource,
 	}
 }
 
 func (p *CloudflareExtProvider) DataSources(_ context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
-		secretsstore.NewStoreDataSource,
+		store.NewStoreDataSource,
 	}
 }

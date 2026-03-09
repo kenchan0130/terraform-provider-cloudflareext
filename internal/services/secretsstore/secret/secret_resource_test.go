@@ -1,4 +1,4 @@
-package secretsstore_test
+package secret_test
 
 import (
 	"encoding/json"

@@ -1,4 +1,4 @@
-package secretsstore
+package store
 
 import (
 	"context"
@@ -81,7 +81,7 @@ func (d *storeDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 	}
 
 	apiPath := fmt.Sprintf("/accounts/%s/secrets_store/stores", d.client.AccountID)
-	result, err := shared.DoRequest[[]apiStoreResponse](ctx, d.client, http.MethodGet, apiPath, nil)
+	result, err := shared.DoRequest[[]apiResponse](ctx, d.client, http.MethodGet, apiPath, nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to list Secrets Stores", err.Error())
 		return

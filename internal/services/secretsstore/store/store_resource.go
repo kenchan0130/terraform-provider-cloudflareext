@@ -1,4 +1,4 @@
-package secretsstore
+package store
 
 import (
 	"context"
@@ -75,18 +75,18 @@ func (r *storeResource) Configure(_ context.Context, req resource.ConfigureReque
 }
 
 func (r *storeResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var data storeModel
+	var data model
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	apiReq := []apiStoreCreateRequest{
+	apiReq := []apiCreateRequest{
 		{Name: data.Name.ValueString()},
 	}
 
 	apiPath := fmt.Sprintf("/accounts/%s/secrets_store/stores", r.client.AccountID)
-	result, err := shared.DoRequest[[]apiStoreResponse](ctx, r.client, http.MethodPost, apiPath, apiReq)
+	result, err := shared.DoRequest[[]apiResponse](ctx, r.client, http.MethodPost, apiPath, apiReq)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to create Secrets Store", err.Error())
 		return
@@ -107,7 +107,7 @@ func (r *storeResource) Create(ctx context.Context, req resource.CreateRequest, 
 }
 
 func (r *storeResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	var data storeModel
+	var data model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -139,7 +139,7 @@ func (r *storeResource) Update(_ context.Context, _ resource.UpdateRequest, resp
 }
 
 func (r *storeResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var data storeModel
+	var data model
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -163,7 +163,7 @@ func (r *storeResource) ImportState(ctx context.Context, req resource.ImportStat
 		return
 	}
 
-	data := storeModel{
+	data := model{
 		ID:       types.StringValue(store.ID),
 		Name:     types.StringValue(store.Name),
 		Created:  types.StringValue(store.Created),
@@ -173,9 +173,9 @@ func (r *storeResource) ImportState(ctx context.Context, req resource.ImportStat
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func (r *storeResource) findStoreByID(ctx context.Context, id string) (*apiStoreResponse, error) {
+func (r *storeResource) findStoreByID(ctx context.Context, id string) (*apiResponse, error) {
 	apiPath := fmt.Sprintf("/accounts/%s/secrets_store/stores", r.client.AccountID)
-	result, err := shared.DoRequest[[]apiStoreResponse](ctx, r.client, http.MethodGet, apiPath, nil)
+	result, err := shared.DoRequest[[]apiResponse](ctx, r.client, http.MethodGet, apiPath, nil)
 	if err != nil {
 		return nil, err
 	}
