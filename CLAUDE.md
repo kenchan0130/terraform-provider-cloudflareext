@@ -9,9 +9,10 @@ Terraform provider for Cloudflare resources that require write-only attribute su
 - **Provider**: `internal/provider/provider.go` - Configuration (api_token, account_id, base_url)
 - **Resources**:
   - `cloudflareext_hyperdrive_config` - Hyperdrive database proxy configs (password/password_wo)
+  - `cloudflareext_secrets_store` - Secrets Store container (name is immutable, no update API)
   - `cloudflareext_secrets_store_secret` - Secrets Store secrets (value/value_wo)
-- **Ephemeral Resources**:
-  - `cloudflareext_secrets_store_secret` - Read-only secret metadata (never stored in state)
+- **Data Sources**:
+  - `cloudflareext_secrets_store` - Look up a Secrets Store by name
 - **API Layer**: `internal/provider/api.go` - Generic Cloudflare API client with `doRequest[T]()` / `doRequestNoBody()`
 - **Tests**: `internal/provider/*_test.go` - Unit tests using `jarcoal/httpmock` for HTTP mocking
 

@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
-	"github.com/hashicorp/terraform-plugin-framework/ephemeral"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
@@ -15,7 +14,6 @@ import (
 )
 
 var _ provider.Provider = &CloudflareExtProvider{}
-var _ provider.ProviderWithEphemeralResources = &CloudflareExtProvider{}
 
 // CloudflareExtProvider is a minimal Terraform provider for Cloudflare resources
 // that require write-only attribute support to prevent secrets from being stored in state.
@@ -139,16 +137,13 @@ func (p *CloudflareExtProvider) Configure(ctx context.Context, req provider.Conf
 func (p *CloudflareExtProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewHyperdriveConfigResource,
+		NewSecretsStoreResource,
 		NewSecretsStoreSecretResource,
 	}
 }
 
 func (p *CloudflareExtProvider) DataSources(_ context.Context) []func() datasource.DataSource {
-	return []func() datasource.DataSource{}
-}
-
-func (p *CloudflareExtProvider) EphemeralResources(_ context.Context) []func() ephemeral.EphemeralResource {
-	return []func() ephemeral.EphemeralResource{
-		NewSecretsStoreSecretEphemeral,
+	return []func() datasource.DataSource{
+		NewSecretsStoreDataSource,
 	}
 }
