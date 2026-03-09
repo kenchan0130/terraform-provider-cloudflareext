@@ -3,12 +3,12 @@
 page_title: "cloudflareext_hyperdrive_config Resource - cloudflareext"
 subcategory: ""
 description: |-
-  Manages a Cloudflare Hyperdrive configuration. Compatible with the official cloudflare_hyperdrive_config interface, with an additional password_wo (write-only) attribute that prevents the database password from being stored in Terraform state.
+  Manages a Cloudflare Hyperdrive configuration. Compatible with the official cloudflare_hyperdrive_config interface, with additional write-only attributes (password_wo, access_client_secret_wo) that prevent secrets from being stored in Terraform state.
 ---
 
 # cloudflareext_hyperdrive_config (Resource)
 
-Manages a Cloudflare Hyperdrive configuration. Compatible with the official cloudflare_hyperdrive_config interface, with an additional `password_wo` (write-only) attribute that prevents the database password from being stored in Terraform state.
+Manages a Cloudflare Hyperdrive configuration. Compatible with the official `cloudflare_hyperdrive_config` interface, with additional write-only attributes (`password_wo`, `access_client_secret_wo`) that prevent secrets from being stored in Terraform state.
 
 ## Example Usage
 
@@ -23,6 +23,11 @@ resource "cloudflareext_hyperdrive_config" "example" {
     password_wo = var.db_password
     scheme      = "postgresql"
   }
+  caching = {
+    disabled               = false
+    max_age                = 60
+    stale_while_revalidate = 15
+  }
 }
 ```
 
@@ -33,6 +38,12 @@ resource "cloudflareext_hyperdrive_config" "example" {
 
 - `name` (String) The name of the Hyperdrive configuration.
 - `origin` (Attributes) The database connection configuration. (see [below for nested schema](#nestedatt--origin))
+
+### Optional
+
+- `caching` (Attributes) The caching configuration for the Hyperdrive. (see [below for nested schema](#nestedatt--caching))
+- `mtls` (Attributes) The mTLS configuration for connecting to the origin database. (see [below for nested schema](#nestedatt--mtls))
+- `origin_connection_limit` (Number) The soft maximum number of connections that Hyperdrive may establish to the origin database. Must be between `5` and `100`.
 
 ### Read-Only
 
@@ -49,10 +60,33 @@ Required:
 
 Optional:
 
+- `access_client_id` (String) The Client ID of the Access token to use when connecting to the origin database.
+- `access_client_secret` (String, Sensitive) The Client Secret of the Access token (legacy). On Terraform 1.11+, use `access_client_secret_wo` instead. At most one of `access_client_secret` or `access_client_secret_wo` may be set.
+- `access_client_secret_wo` (String, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) The Client Secret of the Access token (write-only). This value is never stored in Terraform state. Requires Terraform 1.11 or later. At most one of `access_client_secret` or `access_client_secret_wo` may be set.
 - `password` (String, Sensitive) The database password (legacy). On Terraform 1.11+, use `password_wo` instead to prevent the password from being stored in state. Exactly one of `password` or `password_wo` must be set.
 - `password_wo` (String, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) The database password (write-only). This value is never stored in Terraform state. Requires Terraform 1.11 or later. Exactly one of `password` or `password_wo` must be set.
-- `port` (Number) The port number of the database server. Defaults to 5432.
-- `scheme` (String) The connection scheme. Defaults to "postgresql".
+- `port` (Number) The port number of the database server. Defaults to `5432`.
+- `scheme` (String) The connection scheme. Valid values: `postgresql`, `postgres`, `mysql`. Defaults to `"postgresql"`.
+
+
+<a id="nestedatt--caching"></a>
+### Nested Schema for `caching`
+
+Optional:
+
+- `disabled` (Boolean) Whether to disable caching of SQL responses. Defaults to `false`.
+- `max_age` (Number) The maximum duration (in seconds) for which items should persist in the cache. Defaults to `60`. Maximum value is `3600`.
+- `stale_while_revalidate` (Number) The number of seconds the cache may serve a stale response while revalidating. Defaults to `15`.
+
+
+<a id="nestedatt--mtls"></a>
+### Nested Schema for `mtls`
+
+Optional:
+
+- `ca_certificate_id` (String) The UUID of a custom CA certificate to use when connecting to the origin database.
+- `mtls_certificate_id` (String) The UUID of a custom mTLS client certificate to use when connecting to the origin database.
+- `sslmode` (String) The SSL mode to use when connecting to the origin database. Valid values: `require`, `verify-ca`, `verify-full`.
 
 ## Import
 
