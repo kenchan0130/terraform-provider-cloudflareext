@@ -1,0 +1,7 @@
+terraform-provider-cloudflareext
+dist/
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+.terraform.lock.hcl
