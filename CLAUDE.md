@@ -62,3 +62,4 @@ make install    # Install provider locally for testing
 - GitHub Actions pinned to commit SHAs with `# vX.Y.Z` comments
 - DCO sign-off required for contributions (`git commit -s`)
 - License: Apache 2.0
+- Before creating a pull request, always run `make fmt`, `go generate ./...`, and `make test` to ensure no formatting, generation, or test failures
