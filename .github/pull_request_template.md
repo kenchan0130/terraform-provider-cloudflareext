@@ -1,10 +1,28 @@
-## Summary
+## Description
 
 <!-- What does this PR do? Why is it needed? -->
 
-## Test plan
+## References
 
-<!-- How was this tested? -->
+<!--
+Link related issues or resources. Examples:
+  Closes #123
+  Relates #456
+  https://developers.cloudflare.com/...
+-->
 
-- [ ] `make test` passes
+## Checklist
+
+- [ ] Unit tests added or updated (`make test`)
 - [ ] `make fmt` produces no changes
+- [ ] `go generate ./...` produces no changes (if applicable)
+
+### Acceptance test results
+
+<!--
+If applicable, paste the output of acceptance tests below.
+
+```
+make testacc TESTARGS="-run TestAccXXX"
+```
+-->
