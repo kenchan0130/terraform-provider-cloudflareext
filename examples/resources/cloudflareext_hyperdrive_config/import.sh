@@ -1,0 +1,1 @@
+terraform import cloudflareext_hyperdrive_config.example <hyperdrive_config_id>

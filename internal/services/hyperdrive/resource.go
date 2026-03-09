@@ -38,7 +38,7 @@ func (r *configResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 	resp.Schema = schema.Schema{
 		Description: "Manages a Cloudflare Hyperdrive configuration. " +
 			"Compatible with the official cloudflare_hyperdrive_config interface, " +
-			"with an additional password_wo (write-only) attribute that prevents " +
+			"with an additional `password_wo` (write-only) attribute that prevents " +
 			"the database password from being stored in Terraform state.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
@@ -76,9 +76,9 @@ func (r *configResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 					},
 					"password": schema.StringAttribute{
 						Description: "The database password (legacy). " +
-							"On Terraform 1.11+, use password_wo instead to prevent " +
+							"On Terraform 1.11+, use `password_wo` instead to prevent " +
 							"the password from being stored in state. " +
-							"Exactly one of password or password_wo must be set.",
+							"Exactly one of `password` or `password_wo` must be set.",
 						Optional:  true,
 						Sensitive: true,
 						Validators: []validator.String{
@@ -91,7 +91,7 @@ func (r *configResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 						Description: "The database password (write-only). " +
 							"This value is never stored in Terraform state. " +
 							"Requires Terraform 1.11 or later. " +
-							"Exactly one of password or password_wo must be set.",
+							"Exactly one of `password` or `password_wo` must be set.",
 						Optional:  true,
 						WriteOnly: true,
 						Validators: []validator.String{
