@@ -1,4 +1,4 @@
-package provider
+package shared
 
 import (
 	"context"
@@ -8,18 +8,20 @@ import (
 	"github.com/jarcoal/httpmock"
 )
 
+type testResponse struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 func TestDoRequest_Success(t *testing.T) {
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()
 
 	httpmock.RegisterResponder(http.MethodGet,
 		"https://api.example.com/test",
-		httpmock.NewJsonResponderOrPanic(200, cloudflareResponse[apiHyperdriveResponse]{
+		httpmock.NewJsonResponderOrPanic(200, CloudflareResponse[testResponse]{
 			Success: true,
-			Result: apiHyperdriveResponse{
-				ID:   "test-id",
-				Name: "test-name",
-			},
+			Result:  testResponse{ID: "test-id", Name: "test-name"},
 		}),
 	)
 
@@ -30,7 +32,7 @@ func TestDoRequest_Success(t *testing.T) {
 		AccountID:  "test-account",
 	}
 
-	result, err := doRequest[apiHyperdriveResponse](context.Background(), client, http.MethodGet, "/test", nil)
+	result, err := DoRequest[testResponse](context.Background(), client, http.MethodGet, "/test", nil)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -61,7 +63,7 @@ func TestDoRequest_APIError(t *testing.T) {
 		AccountID:  "test-account",
 	}
 
-	_, err := doRequest[apiHyperdriveResponse](context.Background(), client, http.MethodGet, "/test", nil)
+	_, err := DoRequest[testResponse](context.Background(), client, http.MethodGet, "/test", nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -73,12 +75,9 @@ func TestDoRequest_WithBody(t *testing.T) {
 
 	httpmock.RegisterResponder(http.MethodPost,
 		"https://api.example.com/test",
-		httpmock.NewJsonResponderOrPanic(200, cloudflareResponse[apiHyperdriveResponse]{
+		httpmock.NewJsonResponderOrPanic(200, CloudflareResponse[testResponse]{
 			Success: true,
-			Result: apiHyperdriveResponse{
-				ID:   "created-id",
-				Name: "created-name",
-			},
+			Result:  testResponse{ID: "created-id", Name: "created-name"},
 		}),
 	)
 
@@ -90,7 +89,7 @@ func TestDoRequest_WithBody(t *testing.T) {
 	}
 
 	body := map[string]string{"name": "test"}
-	result, err := doRequest[apiHyperdriveResponse](context.Background(), client, http.MethodPost, "/test", body)
+	result, err := DoRequest[testResponse](context.Background(), client, http.MethodPost, "/test", body)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -115,7 +114,7 @@ func TestDoRequestNoBody_Success(t *testing.T) {
 		AccountID:  "test-account",
 	}
 
-	err := doRequestNoBody(context.Background(), client, "/test")
+	err := DoRequestNoBody(context.Background(), client, "/test")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -137,7 +136,7 @@ func TestDoRequestNoBody_Error(t *testing.T) {
 		AccountID:  "test-account",
 	}
 
-	err := doRequestNoBody(context.Background(), client, "/test")
+	err := DoRequestNoBody(context.Background(), client, "/test")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -154,9 +153,9 @@ func TestDoRequest_AuthorizationHeader(t *testing.T) {
 			if auth != "Bearer my-secret-token" {
 				t.Errorf("expected 'Bearer my-secret-token', got '%s'", auth)
 			}
-			return httpmock.NewJsonResponse(200, cloudflareResponse[apiHyperdriveResponse]{
+			return httpmock.NewJsonResponse(200, CloudflareResponse[testResponse]{
 				Success: true,
-				Result:  apiHyperdriveResponse{ID: "test"},
+				Result:  testResponse{ID: "test"},
 			})
 		},
 	)
@@ -168,7 +167,7 @@ func TestDoRequest_AuthorizationHeader(t *testing.T) {
 		AccountID:  "test-account",
 	}
 
-	_, err := doRequest[apiHyperdriveResponse](context.Background(), client, http.MethodGet, "/test", nil)
+	_, err := DoRequest[testResponse](context.Background(), client, http.MethodGet, "/test", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

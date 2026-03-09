@@ -1,4 +1,4 @@
-package provider
+package secretsstore
 
 import (
 	"context"
@@ -13,63 +13,25 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/provider/shared"
 )
 
-var _ resource.Resource = &SecretsStoreSecretResource{}
+var _ resource.Resource = &secretResource{}
 
-type SecretsStoreSecretResource struct {
-	client *CloudflareClient
+type secretResource struct {
+	client *shared.CloudflareClient
 }
 
-// SecretsStoreSecretModel is the Terraform resource data model.
-type SecretsStoreSecretModel struct {
-	ID       types.String `tfsdk:"id"`
-	StoreID  types.String `tfsdk:"store_id"`
-	Name     types.String `tfsdk:"name"`
-	Value    types.String `tfsdk:"value"`
-	ValueWO  types.String `tfsdk:"value_wo"`
-	Comment  types.String `tfsdk:"comment"`
-	Scopes   types.List   `tfsdk:"scopes"`
-	Status   types.String `tfsdk:"status"`
-	Created  types.String `tfsdk:"created"`
-	Modified types.String `tfsdk:"modified"`
+// NewSecretResource returns a new Secrets Store secret resource.
+func NewSecretResource() resource.Resource {
+	return &secretResource{}
 }
 
-type apiSecretCreateRequest struct {
-	Name    string   `json:"name"`
-	Value   string   `json:"value"`
-	Scopes  []string `json:"scopes"`
-	Comment string   `json:"comment,omitempty"`
-}
-
-type apiSecretUpdateRequest struct {
-	Name    string   `json:"name,omitempty"`
-	Value   string   `json:"value,omitempty"`
-	Scopes  []string `json:"scopes,omitempty"`
-	Comment string   `json:"comment,omitempty"`
-}
-
-// apiSecretResponse is the Secrets Store API response.
-// The value field is never returned in GET responses.
-type apiSecretResponse struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Status   string `json:"status"`
-	StoreID  string `json:"store_id"`
-	Comment  string `json:"comment"`
-	Created  string `json:"created"`
-	Modified string `json:"modified"`
-}
-
-func NewSecretsStoreSecretResource() resource.Resource {
-	return &SecretsStoreSecretResource{}
-}
-
-func (r *SecretsStoreSecretResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+func (r *secretResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_secrets_store_secret"
 }
 
-func (r *SecretsStoreSecretResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (r *secretResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Description: "Manages a Cloudflare Secrets Store secret. " +
 			"The secret value is never stored in Terraform state when using value_wo.",
@@ -143,31 +105,30 @@ func (r *SecretsStoreSecretResource) Schema(_ context.Context, _ resource.Schema
 	}
 }
 
-func (r *SecretsStoreSecretResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+func (r *secretResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	if req.ProviderData == nil {
 		return
 	}
-	client, ok := req.ProviderData.(*CloudflareClient)
+	client, ok := req.ProviderData.(*shared.CloudflareClient)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Provider Data Type",
-			fmt.Sprintf("Expected *CloudflareClient, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			fmt.Sprintf("Expected *shared.CloudflareClient, got: %T.", req.ProviderData),
 		)
 		return
 	}
 	r.client = client
 }
 
-// resolveValue returns the value from either value_wo or value.
-func (r *SecretsStoreSecretResource) resolveValue(data *SecretsStoreSecretModel) string {
+func (r *secretResource) resolveValue(data *secretModel) string {
 	if !data.ValueWO.IsNull() && !data.ValueWO.IsUnknown() {
 		return data.ValueWO.ValueString()
 	}
 	return data.Value.ValueString()
 }
 
-func (r *SecretsStoreSecretResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var data SecretsStoreSecretModel
+func (r *secretResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var data secretModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -187,7 +148,7 @@ func (r *SecretsStoreSecretResource) Create(ctx context.Context, req resource.Cr
 	}
 
 	apiPath := fmt.Sprintf("/accounts/%s/secrets_store/stores/%s/secrets", r.client.AccountID, data.StoreID.ValueString())
-	result, err := doRequest[apiSecretResponse](ctx, r.client, http.MethodPost, apiPath, apiReq)
+	result, err := shared.DoRequest[apiSecretResponse](ctx, r.client, http.MethodPost, apiPath, apiReq)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to create secret", err.Error())
 		return
@@ -197,8 +158,8 @@ func (r *SecretsStoreSecretResource) Create(ctx context.Context, req resource.Cr
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func (r *SecretsStoreSecretResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	var data SecretsStoreSecretModel
+func (r *secretResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var data secretModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -206,20 +167,18 @@ func (r *SecretsStoreSecretResource) Read(ctx context.Context, req resource.Read
 
 	apiPath := fmt.Sprintf("/accounts/%s/secrets_store/stores/%s/secrets/%s",
 		r.client.AccountID, data.StoreID.ValueString(), data.ID.ValueString())
-	result, err := doRequest[apiSecretResponse](ctx, r.client, http.MethodGet, apiPath, nil)
+	result, err := shared.DoRequest[apiSecretResponse](ctx, r.client, http.MethodGet, apiPath, nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to read secret", err.Error())
 		return
 	}
 
 	r.mapResponseToModel(result, &data)
-	// value / value_wo are never returned by the API
-
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func (r *SecretsStoreSecretResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var data SecretsStoreSecretModel
+func (r *secretResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var data secretModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -240,7 +199,7 @@ func (r *SecretsStoreSecretResource) Update(ctx context.Context, req resource.Up
 
 	apiPath := fmt.Sprintf("/accounts/%s/secrets_store/stores/%s/secrets/%s",
 		r.client.AccountID, data.StoreID.ValueString(), data.ID.ValueString())
-	result, err := doRequest[apiSecretResponse](ctx, r.client, http.MethodPatch, apiPath, apiReq)
+	result, err := shared.DoRequest[apiSecretResponse](ctx, r.client, http.MethodPatch, apiPath, apiReq)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to update secret", err.Error())
 		return
@@ -250,8 +209,8 @@ func (r *SecretsStoreSecretResource) Update(ctx context.Context, req resource.Up
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func (r *SecretsStoreSecretResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var data SecretsStoreSecretModel
+func (r *secretResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var data secretModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -259,13 +218,13 @@ func (r *SecretsStoreSecretResource) Delete(ctx context.Context, req resource.De
 
 	apiPath := fmt.Sprintf("/accounts/%s/secrets_store/stores/%s/secrets/%s",
 		r.client.AccountID, data.StoreID.ValueString(), data.ID.ValueString())
-	if err := doRequestNoBody(ctx, r.client, apiPath); err != nil {
+	if err := shared.DoRequestNoBody(ctx, r.client, apiPath); err != nil {
 		resp.Diagnostics.AddError("Failed to delete secret", err.Error())
 		return
 	}
 }
 
-func (r *SecretsStoreSecretResource) mapResponseToModel(result *apiSecretResponse, data *SecretsStoreSecretModel) {
+func (r *secretResource) mapResponseToModel(result *apiSecretResponse, data *secretModel) {
 	data.ID = types.StringValue(result.ID)
 	data.Name = types.StringValue(result.Name)
 	data.Status = types.StringValue(result.Status)

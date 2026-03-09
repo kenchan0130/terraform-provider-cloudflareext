@@ -6,15 +6,25 @@ Terraform provider for Cloudflare resources that require write-only attribute su
 
 ## Architecture
 
-- **Provider**: `internal/provider/provider.go` - Configuration (api_token, account_id, base_url)
+```
+internal/
+  provider/
+    shared/          # Shared types: CloudflareClient, DoRequest[T], DoRequestNoBody
+    provider.go      # Provider configuration (api_token, account_id, base_url)
+  services/
+    hyperdrive/      # cloudflareext_hyperdrive_config resource
+    secretsstore/    # cloudflareext_secrets_store resource/data source, cloudflareext_secrets_store_secret resource
+  testutil/          # Shared test helpers (provider factories, config helper)
+```
+
+- **Provider**: `internal/provider/provider.go` - Configuration, resource/data source registration
+- **Shared**: `internal/provider/shared/client.go` - Generic Cloudflare API client with `DoRequest[T]()` / `DoRequestNoBody()`
 - **Resources**:
   - `cloudflareext_hyperdrive_config` - Hyperdrive database proxy configs (password/password_wo)
   - `cloudflareext_secrets_store` - Secrets Store container (name is immutable, no update API)
   - `cloudflareext_secrets_store_secret` - Secrets Store secrets (value/value_wo)
 - **Data Sources**:
   - `cloudflareext_secrets_store` - Look up a Secrets Store by name
-- **API Layer**: `internal/provider/api.go` - Generic Cloudflare API client with `doRequest[T]()` / `doRequestNoBody()`
-- **Tests**: `internal/provider/*_test.go` - Unit tests using `jarcoal/httpmock` for HTTP mocking
 
 ## Development Commands
 
@@ -31,17 +41,19 @@ make install    # Install provider locally for testing
 ## Testing Patterns
 
 - Unit tests use `resource.UnitTest()` with `httpmock` to intercept HTTP calls
-- Provider factories: `testUnitTestProtoV6ProviderFactories()` in `provider_test.go`
-- Test config helper: `testUnitTestConfig(hcl)` prepends provider block
-- Each resource test file has a `setup*Mock()` function that registers CRUD responders
-- Mock responses use the same `cloudflareResponse[T]` types as production code
+- Shared test helpers in `internal/testutil/`: `ProtoV6ProviderFactories()`, `TestConfig()`, `CheckResourceAttr()`
+- Tests use external test packages (`_test` suffix) to ensure clean API boundaries
+- Each service test file has a `setup*Mock()` function that registers CRUD responders
+- Mock responses use `shared.CloudflareResponse[T]` types
 - Tests use `_wo` attributes (password_wo, value_wo) to avoid path expression issues with nested validators
 
 ## Key Conventions
 
 - Go module: `github.com/kenchan0130/terraform-provider-cloudflareext`
 - Provider type name: `cloudflareext`
-- All API types prefixed with `api` (e.g., `apiHyperdriveCreateRequest`)
+- Services organized by Cloudflare API domain (`hyperdrive/`, `secretsstore/`)
+- API types are unexported within each service package
+- Only constructor functions are exported from service packages (`NewConfigResource`, `NewStoreResource`, etc.)
 - Resources support both legacy sensitive attrs and write-only `_wo` attrs with `ExactlyOneOf` validators
 - Use absolute paths (`path.MatchRoot(...)`) for cross-attribute validators in nested attributes
 - Version managed in `version` file (read via `//go:embed`)

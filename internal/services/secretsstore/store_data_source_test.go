@@ -1,4 +1,4 @@
-package provider
+package secretsstore_test
 
 import (
 	"encoding/json"
@@ -8,6 +8,8 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/jarcoal/httpmock"
+	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/provider/shared"
+	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/testutil"
 )
 
 func TestUnitSecretsStoreDataSource_Read(t *testing.T) {
@@ -16,9 +18,9 @@ func TestUnitSecretsStoreDataSource_Read(t *testing.T) {
 
 	httpmock.RegisterResponder(http.MethodGet,
 		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/secrets_store/stores",
-		httpmock.NewJsonResponderOrPanic(200, cloudflareResponse[[]apiStoreResponse]{
+		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[[]testStoreResponse]{
 			Success: true,
-			Result: []apiStoreResponse{
+			Result: []testStoreResponse{
 				{
 					ID:       "store-001",
 					Name:     "my-store",
@@ -36,10 +38,10 @@ func TestUnitSecretsStoreDataSource_Read(t *testing.T) {
 	)
 
 	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testUnitTestProtoV6ProviderFactories(),
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
-				Config: testUnitTestConfig(`
+				Config: testutil.TestConfig(`
 data "cloudflareext_secrets_store" "test" {
   name = "my-store"
 }
@@ -61,17 +63,17 @@ func TestUnitSecretsStoreDataSource_NotFound(t *testing.T) {
 
 	httpmock.RegisterResponder(http.MethodGet,
 		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/secrets_store/stores",
-		httpmock.NewJsonResponderOrPanic(200, cloudflareResponse[[]apiStoreResponse]{
+		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[[]testStoreResponse]{
 			Success: true,
-			Result:  []apiStoreResponse{},
+			Result:  []testStoreResponse{},
 		}),
 	)
 
 	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testUnitTestProtoV6ProviderFactories(),
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
-				Config: testUnitTestConfig(`
+				Config: testutil.TestConfig(`
 data "cloudflareext_secrets_store" "test" {
   name = "nonexistent"
 }
@@ -88,19 +90,19 @@ func TestUnitSecretsStoreDataSource_APIError(t *testing.T) {
 
 	httpmock.RegisterResponder(http.MethodGet,
 		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/secrets_store/stores",
-		httpmock.NewJsonResponderOrPanic(403, cloudflareResponse[json.RawMessage]{
+		httpmock.NewJsonResponderOrPanic(403, shared.CloudflareResponse[json.RawMessage]{
 			Success: false,
-			Errors: []cloudflareError{
+			Errors: []shared.CloudflareError{
 				{Code: 10000, Message: "Authentication error"},
 			},
 		}),
 	)
 
 	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testUnitTestProtoV6ProviderFactories(),
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
-				Config: testUnitTestConfig(`
+				Config: testutil.TestConfig(`
 data "cloudflareext_secrets_store" "test" {
   name = "my-store"
 }

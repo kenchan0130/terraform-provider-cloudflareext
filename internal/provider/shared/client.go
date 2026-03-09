@@ -1,4 +1,4 @@
-package provider
+package shared
 
 import (
 	"context"
@@ -9,20 +9,29 @@ import (
 	"strings"
 )
 
-// cloudflareResponse represents the standard Cloudflare API response envelope.
-type cloudflareResponse[T any] struct {
+// CloudflareClient holds the configuration for Cloudflare API calls.
+type CloudflareClient struct {
+	HTTPClient *http.Client
+	BaseURL    string
+	APIToken   string
+	AccountID  string
+}
+
+// CloudflareResponse represents the standard Cloudflare API response envelope.
+type CloudflareResponse[T any] struct {
 	Success bool              `json:"success"`
-	Errors  []cloudflareError `json:"errors"`
+	Errors  []CloudflareError `json:"errors"`
 	Result  T                 `json:"result"`
 }
 
-type cloudflareError struct {
+// CloudflareError represents an error in a Cloudflare API response.
+type CloudflareError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 }
 
-// doRequest performs a Cloudflare API request and deserializes the response.
-func doRequest[T any](ctx context.Context, client *CloudflareClient, method, path string, body any) (*T, error) {
+// DoRequest performs a Cloudflare API request and deserializes the response.
+func DoRequest[T any](ctx context.Context, client *CloudflareClient, method, path string, body any) (*T, error) {
 	var reqBody io.Reader
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
@@ -54,14 +63,14 @@ func doRequest[T any](ctx context.Context, client *CloudflareClient, method, pat
 	}
 
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		var cfResp cloudflareResponse[json.RawMessage]
+		var cfResp CloudflareResponse[json.RawMessage]
 		if json.Unmarshal(respBody, &cfResp) == nil && len(cfResp.Errors) > 0 {
 			return nil, fmt.Errorf("API error (status %d): %s", httpResp.StatusCode, cfResp.Errors[0].Message)
 		}
 		return nil, fmt.Errorf("API error (status %d): %s", httpResp.StatusCode, string(respBody))
 	}
 
-	var cfResp cloudflareResponse[T]
+	var cfResp CloudflareResponse[T]
 	if err := json.Unmarshal(respBody, &cfResp); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
@@ -76,8 +85,8 @@ func doRequest[T any](ctx context.Context, client *CloudflareClient, method, pat
 	return &cfResp.Result, nil
 }
 
-// doRequestNoBody performs a Cloudflare API DELETE request that does not return a parsed body.
-func doRequestNoBody(ctx context.Context, client *CloudflareClient, path string) error {
+// DoRequestNoBody performs a Cloudflare API DELETE request that does not return a parsed body.
+func DoRequestNoBody(ctx context.Context, client *CloudflareClient, path string) error {
 	url := fmt.Sprintf("%s%s", client.BaseURL, path)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {

@@ -1,4 +1,4 @@
-package provider
+package hyperdrive_test
 
 import (
 	"encoding/json"
@@ -8,7 +8,33 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/jarcoal/httpmock"
+	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/provider/shared"
+	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/testutil"
 )
+
+type apiHyperdriveCreateRequest struct {
+	Name   string `json:"name"`
+	Origin struct {
+		Host     string `json:"host"`
+		Port     int64  `json:"port"`
+		Database string `json:"database"`
+		User     string `json:"user"`
+		Password string `json:"password"`
+		Scheme   string `json:"scheme"`
+	} `json:"origin"`
+}
+
+type apiHyperdriveResponse struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Origin struct {
+		Host     string `json:"host"`
+		Port     int64  `json:"port"`
+		Database string `json:"database"`
+		User     string `json:"user"`
+		Scheme   string `json:"scheme"`
+	} `json:"origin"`
+}
 
 func setupHyperdriveMock() {
 	httpmock.RegisterResponder(http.MethodPost,
@@ -18,7 +44,7 @@ func setupHyperdriveMock() {
 			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 				return httpmock.NewStringResponse(400, `{"success":false,"errors":[{"code":400,"message":"invalid request"}]}`), nil
 			}
-			resp := cloudflareResponse[apiHyperdriveResponse]{
+			resp := shared.CloudflareResponse[apiHyperdriveResponse]{
 				Success: true,
 				Result: apiHyperdriveResponse{
 					ID:   "hd-test-id-001",
@@ -44,7 +70,7 @@ func setupHyperdriveMock() {
 
 	httpmock.RegisterResponder(http.MethodGet,
 		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-test-id-001",
-		httpmock.NewJsonResponderOrPanic(200, cloudflareResponse[apiHyperdriveResponse]{
+		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveResponse]{
 			Success: true,
 			Result: apiHyperdriveResponse{
 				ID:   "hd-test-id-001",
@@ -73,7 +99,7 @@ func setupHyperdriveMock() {
 			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 				return httpmock.NewStringResponse(400, `{"success":false,"errors":[{"code":400,"message":"invalid request"}]}`), nil
 			}
-			resp := cloudflareResponse[apiHyperdriveResponse]{
+			resp := shared.CloudflareResponse[apiHyperdriveResponse]{
 				Success: true,
 				Result: apiHyperdriveResponse{
 					ID:   "hd-test-id-001",
@@ -110,10 +136,10 @@ func TestUnitHyperdriveConfig_Create(t *testing.T) {
 	setupHyperdriveMock()
 
 	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testUnitTestProtoV6ProviderFactories(),
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
-				Config: testUnitTestConfig(`
+				Config: testutil.TestConfig(`
 resource "cloudflareext_hyperdrive_config" "test" {
   name = "my-hyperdrive"
   origin = {
@@ -125,13 +151,13 @@ resource "cloudflareext_hyperdrive_config" "test" {
 }
 `),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					testCheckResourceAttr("cloudflareext_hyperdrive_config.test", "id", "hd-test-id-001"),
-					testCheckResourceAttr("cloudflareext_hyperdrive_config.test", "name", "my-hyperdrive"),
-					testCheckResourceAttr("cloudflareext_hyperdrive_config.test", "origin.host", "db.example.com"),
-					testCheckResourceAttr("cloudflareext_hyperdrive_config.test", "origin.port", "5432"),
-					testCheckResourceAttr("cloudflareext_hyperdrive_config.test", "origin.database", "mydb"),
-					testCheckResourceAttr("cloudflareext_hyperdrive_config.test", "origin.user", "dbuser"),
-					testCheckResourceAttr("cloudflareext_hyperdrive_config.test", "origin.scheme", "postgresql"),
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "id", "hd-test-id-001"),
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "name", "my-hyperdrive"),
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "origin.host", "db.example.com"),
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "origin.port", "5432"),
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "origin.database", "mydb"),
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "origin.user", "dbuser"),
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "origin.scheme", "postgresql"),
 				),
 			},
 		},
@@ -144,14 +170,13 @@ func TestUnitHyperdriveConfig_Update(t *testing.T) {
 
 	setupHyperdriveMock()
 
-	// Override GET to return updated name after update
 	updatedGetRegistered := false
 
 	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testUnitTestProtoV6ProviderFactories(),
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
-				Config: testUnitTestConfig(`
+				Config: testutil.TestConfig(`
 resource "cloudflareext_hyperdrive_config" "test" {
   name = "my-hyperdrive"
   origin = {
@@ -162,14 +187,14 @@ resource "cloudflareext_hyperdrive_config" "test" {
   }
 }
 `),
-				Check: testCheckResourceAttr("cloudflareext_hyperdrive_config.test", "name", "my-hyperdrive"),
+				Check: testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "name", "my-hyperdrive"),
 			},
 			{
 				PreConfig: func() {
 					if !updatedGetRegistered {
 						httpmock.RegisterResponder(http.MethodGet,
 							"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-test-id-001",
-							httpmock.NewJsonResponderOrPanic(200, cloudflareResponse[apiHyperdriveResponse]{
+							httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveResponse]{
 								Success: true,
 								Result: apiHyperdriveResponse{
 									ID:   "hd-test-id-001",
@@ -193,7 +218,7 @@ resource "cloudflareext_hyperdrive_config" "test" {
 						updatedGetRegistered = true
 					}
 				},
-				Config: testUnitTestConfig(`
+				Config: testutil.TestConfig(`
 resource "cloudflareext_hyperdrive_config" "test" {
   name = "my-hyperdrive-updated"
   origin = {
@@ -204,7 +229,7 @@ resource "cloudflareext_hyperdrive_config" "test" {
   }
 }
 `),
-				Check: testCheckResourceAttr("cloudflareext_hyperdrive_config.test", "name", "my-hyperdrive-updated"),
+				Check: testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "name", "my-hyperdrive-updated"),
 			},
 		},
 	})
@@ -215,10 +240,10 @@ func TestUnitHyperdriveConfig_RequiredFields(t *testing.T) {
 	defer httpmock.DeactivateAndReset()
 
 	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testUnitTestProtoV6ProviderFactories(),
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
-				Config: testUnitTestConfig(`
+				Config: testutil.TestConfig(`
 resource "cloudflareext_hyperdrive_config" "test" {
   name = "my-hyperdrive"
 }
@@ -234,10 +259,10 @@ func TestUnitHyperdriveConfig_PasswordRequired(t *testing.T) {
 	defer httpmock.DeactivateAndReset()
 
 	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testUnitTestProtoV6ProviderFactories(),
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
-				Config: testUnitTestConfig(`
+				Config: testutil.TestConfig(`
 resource "cloudflareext_hyperdrive_config" "test" {
   name = "my-hyperdrive"
   origin = {
@@ -260,10 +285,10 @@ func TestUnitHyperdriveConfig_ImportState(t *testing.T) {
 	setupHyperdriveMock()
 
 	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testUnitTestProtoV6ProviderFactories(),
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
-				Config: testUnitTestConfig(`
+				Config: testutil.TestConfig(`
 resource "cloudflareext_hyperdrive_config" "test" {
   name = "my-hyperdrive"
   origin = {
@@ -297,7 +322,7 @@ func TestUnitHyperdriveConfig_CustomPort(t *testing.T) {
 			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 				return httpmock.NewStringResponse(400, ""), nil
 			}
-			return httpmock.NewJsonResponse(200, cloudflareResponse[apiHyperdriveResponse]{
+			return httpmock.NewJsonResponse(200, shared.CloudflareResponse[apiHyperdriveResponse]{
 				Success: true,
 				Result: apiHyperdriveResponse{
 					ID:   "hd-test-id-002",
@@ -322,7 +347,7 @@ func TestUnitHyperdriveConfig_CustomPort(t *testing.T) {
 
 	httpmock.RegisterResponder(http.MethodGet,
 		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-test-id-002",
-		httpmock.NewJsonResponderOrPanic(200, cloudflareResponse[apiHyperdriveResponse]{
+		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveResponse]{
 			Success: true,
 			Result: apiHyperdriveResponse{
 				ID:   "hd-test-id-002",
@@ -350,10 +375,10 @@ func TestUnitHyperdriveConfig_CustomPort(t *testing.T) {
 	)
 
 	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testUnitTestProtoV6ProviderFactories(),
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
-				Config: testUnitTestConfig(`
+				Config: testutil.TestConfig(`
 resource "cloudflareext_hyperdrive_config" "test" {
   name = "mysql-hyperdrive"
   origin = {
@@ -367,8 +392,8 @@ resource "cloudflareext_hyperdrive_config" "test" {
 }
 `),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					testCheckResourceAttr("cloudflareext_hyperdrive_config.test", "origin.port", "3306"),
-					testCheckResourceAttr("cloudflareext_hyperdrive_config.test", "origin.scheme", "mysql"),
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "origin.port", "3306"),
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "origin.scheme", "mysql"),
 				),
 			},
 		},
@@ -381,19 +406,19 @@ func TestUnitHyperdriveConfig_APIError(t *testing.T) {
 
 	httpmock.RegisterResponder(http.MethodPost,
 		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs",
-		httpmock.NewJsonResponderOrPanic(403, cloudflareResponse[json.RawMessage]{
+		httpmock.NewJsonResponderOrPanic(403, shared.CloudflareResponse[json.RawMessage]{
 			Success: false,
-			Errors: []cloudflareError{
+			Errors: []shared.CloudflareError{
 				{Code: 10000, Message: "Authentication error"},
 			},
 		}),
 	)
 
 	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testUnitTestProtoV6ProviderFactories(),
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
-				Config: testUnitTestConfig(`
+				Config: testutil.TestConfig(`
 resource "cloudflareext_hyperdrive_config" "test" {
   name = "my-hyperdrive"
   origin = {

@@ -11,6 +11,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/provider/shared"
+	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/hyperdrive"
+	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/secretsstore"
 )
 
 var _ provider.Provider = &CloudflareExtProvider{}
@@ -28,14 +31,7 @@ type CloudflareExtProviderModel struct {
 	BaseURL   types.String `tfsdk:"base_url"`
 }
 
-// CloudflareClient holds the configuration for Cloudflare API calls.
-type CloudflareClient struct {
-	HTTPClient *http.Client
-	BaseURL    string
-	APIToken   string
-	AccountID  string
-}
-
+// New returns a new provider factory function.
 func New(version string) func() provider.Provider {
 	return func() provider.Provider {
 		return &CloudflareExtProvider{
@@ -84,7 +80,6 @@ func (p *CloudflareExtProvider) Configure(ctx context.Context, req provider.Conf
 		return
 	}
 
-	// API token: config > environment variable
 	apiToken := os.Getenv("CLOUDFLARE_API_TOKEN")
 	if !config.APIToken.IsNull() {
 		apiToken = config.APIToken.ValueString()
@@ -99,7 +94,6 @@ func (p *CloudflareExtProvider) Configure(ctx context.Context, req provider.Conf
 		return
 	}
 
-	// Account ID: config > environment variable
 	accountID := os.Getenv("CLOUDFLARE_ACCOUNT_ID")
 	if !config.AccountID.IsNull() {
 		accountID = config.AccountID.ValueString()
@@ -114,7 +108,6 @@ func (p *CloudflareExtProvider) Configure(ctx context.Context, req provider.Conf
 		return
 	}
 
-	// Base URL: config > environment variable > default
 	baseURL := "https://api.cloudflare.com/client/v4"
 	if envURL := os.Getenv("CLOUDFLARE_API_BASE_URL"); envURL != "" {
 		baseURL = envURL
@@ -123,7 +116,7 @@ func (p *CloudflareExtProvider) Configure(ctx context.Context, req provider.Conf
 		baseURL = config.BaseURL.ValueString()
 	}
 
-	client := &CloudflareClient{
+	client := &shared.CloudflareClient{
 		HTTPClient: http.DefaultClient,
 		BaseURL:    baseURL,
 		APIToken:   apiToken,
@@ -136,14 +129,14 @@ func (p *CloudflareExtProvider) Configure(ctx context.Context, req provider.Conf
 
 func (p *CloudflareExtProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
-		NewHyperdriveConfigResource,
-		NewSecretsStoreResource,
-		NewSecretsStoreSecretResource,
+		hyperdrive.NewConfigResource,
+		secretsstore.NewStoreResource,
+		secretsstore.NewSecretResource,
 	}
 }
 
 func (p *CloudflareExtProvider) DataSources(_ context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
-		NewSecretsStoreDataSource,
+		secretsstore.NewStoreDataSource,
 	}
 }

@@ -1,4 +1,4 @@
-package provider
+package secretsstore_test
 
 import (
 	"encoding/json"
@@ -8,19 +8,45 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/jarcoal/httpmock"
+	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/provider/shared"
+	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/testutil"
 )
 
-func setupSecretsStoreMock() {
+type testSecretCreateRequest struct {
+	Name    string   `json:"name"`
+	Value   string   `json:"value"`
+	Scopes  []string `json:"scopes"`
+	Comment string   `json:"comment,omitempty"`
+}
+
+type testSecretUpdateRequest struct {
+	Name    string   `json:"name,omitempty"`
+	Value   string   `json:"value,omitempty"`
+	Scopes  []string `json:"scopes,omitempty"`
+	Comment string   `json:"comment,omitempty"`
+}
+
+type testSecretResponse struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Status   string `json:"status"`
+	StoreID  string `json:"store_id"`
+	Comment  string `json:"comment"`
+	Created  string `json:"created"`
+	Modified string `json:"modified"`
+}
+
+func setupSecretMock() {
 	httpmock.RegisterResponder(http.MethodPost,
 		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/secrets_store/stores/store-001/secrets",
 		func(req *http.Request) (*http.Response, error) {
-			var body apiSecretCreateRequest
+			var body testSecretCreateRequest
 			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 				return httpmock.NewStringResponse(400, `{"success":false,"errors":[{"code":400,"message":"invalid request"}]}`), nil
 			}
-			resp := cloudflareResponse[apiSecretResponse]{
+			resp := shared.CloudflareResponse[testSecretResponse]{
 				Success: true,
-				Result: apiSecretResponse{
+				Result: testSecretResponse{
 					ID:       "secret-001",
 					Name:     body.Name,
 					Status:   "active",
@@ -36,9 +62,9 @@ func setupSecretsStoreMock() {
 
 	httpmock.RegisterResponder(http.MethodGet,
 		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/secrets_store/stores/store-001/secrets/secret-001",
-		httpmock.NewJsonResponderOrPanic(200, cloudflareResponse[apiSecretResponse]{
+		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[testSecretResponse]{
 			Success: true,
-			Result: apiSecretResponse{
+			Result: testSecretResponse{
 				ID:       "secret-001",
 				Name:     "MY_SECRET",
 				Status:   "active",
@@ -53,7 +79,7 @@ func setupSecretsStoreMock() {
 	httpmock.RegisterResponder(http.MethodPatch,
 		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/secrets_store/stores/store-001/secrets/secret-001",
 		func(req *http.Request) (*http.Response, error) {
-			var body apiSecretUpdateRequest
+			var body testSecretUpdateRequest
 			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 				return httpmock.NewStringResponse(400, ""), nil
 			}
@@ -67,9 +93,9 @@ func setupSecretsStoreMock() {
 				comment = "test secret"
 			}
 
-			resp := cloudflareResponse[apiSecretResponse]{
+			resp := shared.CloudflareResponse[testSecretResponse]{
 				Success: true,
-				Result: apiSecretResponse{
+				Result: testSecretResponse{
 					ID:       "secret-001",
 					Name:     name,
 					Status:   "active",
@@ -93,13 +119,13 @@ func TestUnitSecretsStoreSecret_Create(t *testing.T) {
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()
 
-	setupSecretsStoreMock()
+	setupSecretMock()
 
 	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testUnitTestProtoV6ProviderFactories(),
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
-				Config: testUnitTestConfig(`
+				Config: testutil.TestConfig(`
 resource "cloudflareext_secrets_store_secret" "test" {
   store_id = "store-001"
   name     = "MY_SECRET"
@@ -109,11 +135,11 @@ resource "cloudflareext_secrets_store_secret" "test" {
 }
 `),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					testCheckResourceAttr("cloudflareext_secrets_store_secret.test", "id", "secret-001"),
-					testCheckResourceAttr("cloudflareext_secrets_store_secret.test", "name", "MY_SECRET"),
-					testCheckResourceAttr("cloudflareext_secrets_store_secret.test", "store_id", "store-001"),
-					testCheckResourceAttr("cloudflareext_secrets_store_secret.test", "status", "active"),
-					testCheckResourceAttr("cloudflareext_secrets_store_secret.test", "comment", "test secret"),
+					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "id", "secret-001"),
+					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "name", "MY_SECRET"),
+					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "store_id", "store-001"),
+					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "status", "active"),
+					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "comment", "test secret"),
 				),
 			},
 		},
@@ -124,15 +150,15 @@ func TestUnitSecretsStoreSecret_Update(t *testing.T) {
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()
 
-	setupSecretsStoreMock()
+	setupSecretMock()
 
 	updatedGetRegistered := false
 
 	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testUnitTestProtoV6ProviderFactories(),
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
-				Config: testUnitTestConfig(`
+				Config: testutil.TestConfig(`
 resource "cloudflareext_secrets_store_secret" "test" {
   store_id = "store-001"
   name     = "MY_SECRET"
@@ -141,16 +167,16 @@ resource "cloudflareext_secrets_store_secret" "test" {
   scopes   = ["workers"]
 }
 `),
-				Check: testCheckResourceAttr("cloudflareext_secrets_store_secret.test", "comment", "test secret"),
+				Check: testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "comment", "test secret"),
 			},
 			{
 				PreConfig: func() {
 					if !updatedGetRegistered {
 						httpmock.RegisterResponder(http.MethodGet,
 							"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/secrets_store/stores/store-001/secrets/secret-001",
-							httpmock.NewJsonResponderOrPanic(200, cloudflareResponse[apiSecretResponse]{
+							httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[testSecretResponse]{
 								Success: true,
-								Result: apiSecretResponse{
+								Result: testSecretResponse{
 									ID:       "secret-001",
 									Name:     "MY_SECRET",
 									Status:   "active",
@@ -164,7 +190,7 @@ resource "cloudflareext_secrets_store_secret" "test" {
 						updatedGetRegistered = true
 					}
 				},
-				Config: testUnitTestConfig(`
+				Config: testutil.TestConfig(`
 resource "cloudflareext_secrets_store_secret" "test" {
   store_id = "store-001"
   name     = "MY_SECRET"
@@ -173,7 +199,7 @@ resource "cloudflareext_secrets_store_secret" "test" {
   scopes   = ["workers"]
 }
 `),
-				Check: testCheckResourceAttr("cloudflareext_secrets_store_secret.test", "comment", "updated comment"),
+				Check: testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "comment", "updated comment"),
 			},
 		},
 	})
@@ -184,10 +210,10 @@ func TestUnitSecretsStoreSecret_ValueRequired(t *testing.T) {
 	defer httpmock.DeactivateAndReset()
 
 	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testUnitTestProtoV6ProviderFactories(),
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
-				Config: testUnitTestConfig(`
+				Config: testutil.TestConfig(`
 resource "cloudflareext_secrets_store_secret" "test" {
   store_id = "store-001"
   name     = "MY_SECRET"
@@ -204,13 +230,13 @@ func TestUnitSecretsStoreSecret_MultipleScopes(t *testing.T) {
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()
 
-	setupSecretsStoreMock()
+	setupSecretMock()
 
 	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testUnitTestProtoV6ProviderFactories(),
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
-				Config: testUnitTestConfig(`
+				Config: testutil.TestConfig(`
 resource "cloudflareext_secrets_store_secret" "test" {
   store_id = "store-001"
   name     = "MY_SECRET"
@@ -220,9 +246,9 @@ resource "cloudflareext_secrets_store_secret" "test" {
 }
 `),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					testCheckResourceAttr("cloudflareext_secrets_store_secret.test", "scopes.#", "2"),
-					testCheckResourceAttr("cloudflareext_secrets_store_secret.test", "scopes.0", "workers"),
-					testCheckResourceAttr("cloudflareext_secrets_store_secret.test", "scopes.1", "ai_gateway"),
+					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "scopes.#", "2"),
+					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "scopes.0", "workers"),
+					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "scopes.1", "ai_gateway"),
 				),
 			},
 		},
@@ -235,19 +261,19 @@ func TestUnitSecretsStoreSecret_APIError(t *testing.T) {
 
 	httpmock.RegisterResponder(http.MethodPost,
 		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/secrets_store/stores/store-001/secrets",
-		httpmock.NewJsonResponderOrPanic(403, cloudflareResponse[json.RawMessage]{
+		httpmock.NewJsonResponderOrPanic(403, shared.CloudflareResponse[json.RawMessage]{
 			Success: false,
-			Errors: []cloudflareError{
+			Errors: []shared.CloudflareError{
 				{Code: 10000, Message: "Authentication error"},
 			},
 		}),
 	)
 
 	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testUnitTestProtoV6ProviderFactories(),
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
-				Config: testUnitTestConfig(`
+				Config: testutil.TestConfig(`
 resource "cloudflareext_secrets_store_secret" "test" {
   store_id = "store-001"
   name     = "MY_SECRET"
@@ -265,19 +291,19 @@ func TestUnitSecretsStoreSecret_StoreIDRequiresReplace(t *testing.T) {
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()
 
-	setupSecretsStoreMock()
+	setupSecretMock()
 
 	// Register mocks for second store
 	httpmock.RegisterResponder(http.MethodPost,
 		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/secrets_store/stores/store-002/secrets",
 		func(req *http.Request) (*http.Response, error) {
-			var body apiSecretCreateRequest
+			var body testSecretCreateRequest
 			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 				return httpmock.NewStringResponse(400, ""), nil
 			}
-			return httpmock.NewJsonResponse(200, cloudflareResponse[apiSecretResponse]{
+			return httpmock.NewJsonResponse(200, shared.CloudflareResponse[testSecretResponse]{
 				Success: true,
-				Result: apiSecretResponse{
+				Result: testSecretResponse{
 					ID:       "secret-002",
 					Name:     body.Name,
 					Status:   "active",
@@ -291,9 +317,9 @@ func TestUnitSecretsStoreSecret_StoreIDRequiresReplace(t *testing.T) {
 	)
 	httpmock.RegisterResponder(http.MethodGet,
 		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/secrets_store/stores/store-002/secrets/secret-002",
-		httpmock.NewJsonResponderOrPanic(200, cloudflareResponse[apiSecretResponse]{
+		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[testSecretResponse]{
 			Success: true,
-			Result: apiSecretResponse{
+			Result: testSecretResponse{
 				ID:       "secret-002",
 				Name:     "MY_SECRET",
 				Status:   "active",
@@ -310,10 +336,10 @@ func TestUnitSecretsStoreSecret_StoreIDRequiresReplace(t *testing.T) {
 	)
 
 	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testUnitTestProtoV6ProviderFactories(),
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
-				Config: testUnitTestConfig(`
+				Config: testutil.TestConfig(`
 resource "cloudflareext_secrets_store_secret" "test" {
   store_id = "store-001"
   name     = "MY_SECRET"
@@ -322,10 +348,10 @@ resource "cloudflareext_secrets_store_secret" "test" {
   scopes   = ["workers"]
 }
 `),
-				Check: testCheckResourceAttr("cloudflareext_secrets_store_secret.test", "store_id", "store-001"),
+				Check: testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "store_id", "store-001"),
 			},
 			{
-				Config: testUnitTestConfig(`
+				Config: testutil.TestConfig(`
 resource "cloudflareext_secrets_store_secret" "test" {
   store_id = "store-002"
   name     = "MY_SECRET"
@@ -334,7 +360,7 @@ resource "cloudflareext_secrets_store_secret" "test" {
   scopes   = ["workers"]
 }
 `),
-				Check: testCheckResourceAttr("cloudflareext_secrets_store_secret.test", "store_id", "store-002"),
+				Check: testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "store_id", "store-002"),
 			},
 		},
 	})

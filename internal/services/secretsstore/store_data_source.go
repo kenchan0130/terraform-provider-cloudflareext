@@ -1,4 +1,4 @@
-package provider
+package secretsstore
 
 import (
 	"context"
@@ -8,31 +8,33 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/provider/shared"
 )
 
-var _ datasource.DataSource = &SecretsStoreDataSource{}
+var _ datasource.DataSource = &storeDataSource{}
 
-type SecretsStoreDataSource struct {
-	client *CloudflareClient
+type storeDataSource struct {
+	client *shared.CloudflareClient
 }
 
-// SecretsStoreDataSourceModel is the data source data model.
-type SecretsStoreDataSourceModel struct {
+// storeDataSourceModel is the data source data model.
+type storeDataSourceModel struct {
 	ID       types.String `tfsdk:"id"`
 	Name     types.String `tfsdk:"name"`
 	Created  types.String `tfsdk:"created"`
 	Modified types.String `tfsdk:"modified"`
 }
 
-func NewSecretsStoreDataSource() datasource.DataSource {
-	return &SecretsStoreDataSource{}
+// NewStoreDataSource returns a new Secrets Store data source.
+func NewStoreDataSource() datasource.DataSource {
+	return &storeDataSource{}
 }
 
-func (d *SecretsStoreDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
+func (d *storeDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_secrets_store"
 }
 
-func (d *SecretsStoreDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
+func (d *storeDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Description: "Reads a Cloudflare Secrets Store by name.",
 		Attributes: map[string]schema.Attribute{
@@ -56,30 +58,30 @@ func (d *SecretsStoreDataSource) Schema(_ context.Context, _ datasource.SchemaRe
 	}
 }
 
-func (d *SecretsStoreDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+func (d *storeDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
 	if req.ProviderData == nil {
 		return
 	}
-	client, ok := req.ProviderData.(*CloudflareClient)
+	client, ok := req.ProviderData.(*shared.CloudflareClient)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Provider Data Type",
-			fmt.Sprintf("Expected *CloudflareClient, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			fmt.Sprintf("Expected *shared.CloudflareClient, got: %T.", req.ProviderData),
 		)
 		return
 	}
 	d.client = client
 }
 
-func (d *SecretsStoreDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
-	var data SecretsStoreDataSourceModel
+func (d *storeDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
+	var data storeDataSourceModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
 	apiPath := fmt.Sprintf("/accounts/%s/secrets_store/stores", d.client.AccountID)
-	result, err := doRequest[[]apiStoreResponse](ctx, d.client, http.MethodGet, apiPath, nil)
+	result, err := shared.DoRequest[[]apiStoreResponse](ctx, d.client, http.MethodGet, apiPath, nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to list Secrets Stores", err.Error())
 		return

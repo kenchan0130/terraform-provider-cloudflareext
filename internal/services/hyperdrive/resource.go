@@ -1,4 +1,4 @@
-package provider
+package hyperdrive
 
 import (
 	"context"
@@ -15,75 +15,26 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/provider/shared"
 )
 
-var _ resource.Resource = &HyperdriveConfigResource{}
-var _ resource.ResourceWithImportState = &HyperdriveConfigResource{}
+var _ resource.Resource = &configResource{}
+var _ resource.ResourceWithImportState = &configResource{}
 
-// HyperdriveConfigResource manages a Cloudflare Hyperdrive configuration.
-type HyperdriveConfigResource struct {
-	client *CloudflareClient
+type configResource struct {
+	client *shared.CloudflareClient
 }
 
-// HyperdriveConfigModel is the Terraform resource data model.
-// It mirrors the official cloudflare_hyperdrive_config interface with an additional
-// write-only password_wo attribute.
-type HyperdriveConfigModel struct {
-	ID     types.String           `tfsdk:"id"`
-	Name   types.String           `tfsdk:"name"`
-	Origin *HyperdriveOriginModel `tfsdk:"origin"`
+// NewConfigResource returns a new Hyperdrive config resource.
+func NewConfigResource() resource.Resource {
+	return &configResource{}
 }
 
-// HyperdriveOriginModel represents the origin (database connection) configuration.
-// Supports both password (legacy, sensitive) and password_wo (write-only).
-type HyperdriveOriginModel struct {
-	Host       types.String `tfsdk:"host"`
-	Port       types.Int64  `tfsdk:"port"`
-	Database   types.String `tfsdk:"database"`
-	User       types.String `tfsdk:"user"`
-	Password   types.String `tfsdk:"password"`
-	PasswordWO types.String `tfsdk:"password_wo"`
-	Scheme     types.String `tfsdk:"scheme"`
-}
-
-// apiHyperdriveCreateRequest is the request body for creating/updating a Hyperdrive config.
-type apiHyperdriveCreateRequest struct {
-	Name   string              `json:"name"`
-	Origin apiHyperdriveOrigin `json:"origin"`
-}
-
-type apiHyperdriveOrigin struct {
-	Host     string `json:"host"`
-	Port     int64  `json:"port"`
-	Database string `json:"database"`
-	User     string `json:"user"`
-	Password string `json:"password"`
-	Scheme   string `json:"scheme"`
-}
-
-// apiHyperdriveResponse is the Cloudflare API response.
-// The password field is never returned in GET responses.
-type apiHyperdriveResponse struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Origin struct {
-		Host     string `json:"host"`
-		Port     int64  `json:"port"`
-		Database string `json:"database"`
-		User     string `json:"user"`
-		Scheme   string `json:"scheme"`
-	} `json:"origin"`
-}
-
-func NewHyperdriveConfigResource() resource.Resource {
-	return &HyperdriveConfigResource{}
-}
-
-func (r *HyperdriveConfigResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+func (r *configResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_hyperdrive_config"
 }
 
-func (r *HyperdriveConfigResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (r *configResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Description: "Manages a Cloudflare Hyperdrive configuration. " +
 			"Compatible with the official cloudflare_hyperdrive_config interface, " +
@@ -161,39 +112,38 @@ func (r *HyperdriveConfigResource) Schema(_ context.Context, _ resource.SchemaRe
 	}
 }
 
-func (r *HyperdriveConfigResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+func (r *configResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	if req.ProviderData == nil {
 		return
 	}
-	client, ok := req.ProviderData.(*CloudflareClient)
+	client, ok := req.ProviderData.(*shared.CloudflareClient)
 	if !ok {
 		resp.Diagnostics.AddError(
 			"Unexpected Provider Data Type",
-			fmt.Sprintf("Expected *CloudflareClient, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+			fmt.Sprintf("Expected *shared.CloudflareClient, got: %T.", req.ProviderData),
 		)
 		return
 	}
 	r.client = client
 }
 
-// resolvePassword returns the password from either password_wo or password.
-func (r *HyperdriveConfigResource) resolvePassword(origin *HyperdriveOriginModel) string {
+func (r *configResource) resolvePassword(origin *originModel) string {
 	if !origin.PasswordWO.IsNull() && !origin.PasswordWO.IsUnknown() {
 		return origin.PasswordWO.ValueString()
 	}
 	return origin.Password.ValueString()
 }
 
-func (r *HyperdriveConfigResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var data HyperdriveConfigModel
+func (r *configResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var data configModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	apiReq := apiHyperdriveCreateRequest{
+	apiReq := apiCreateRequest{
 		Name: data.Name.ValueString(),
-		Origin: apiHyperdriveOrigin{
+		Origin: apiOrigin{
 			Host:     data.Origin.Host.ValueString(),
 			Port:     data.Origin.Port.ValueInt64(),
 			Database: data.Origin.Database.ValueString(),
@@ -204,7 +154,7 @@ func (r *HyperdriveConfigResource) Create(ctx context.Context, req resource.Crea
 	}
 
 	apiPath := fmt.Sprintf("/accounts/%s/hyperdrive/configs", r.client.AccountID)
-	result, err := doRequest[apiHyperdriveResponse](ctx, r.client, http.MethodPost, apiPath, apiReq)
+	result, err := shared.DoRequest[apiResponse](ctx, r.client, http.MethodPost, apiPath, apiReq)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to create Hyperdrive config", err.Error())
 		return
@@ -214,15 +164,15 @@ func (r *HyperdriveConfigResource) Create(ctx context.Context, req resource.Crea
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func (r *HyperdriveConfigResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	var data HyperdriveConfigModel
+func (r *configResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var data configModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
 	apiPath := fmt.Sprintf("/accounts/%s/hyperdrive/configs/%s", r.client.AccountID, data.ID.ValueString())
-	result, err := doRequest[apiHyperdriveResponse](ctx, r.client, http.MethodGet, apiPath, nil)
+	result, err := shared.DoRequest[apiResponse](ctx, r.client, http.MethodGet, apiPath, nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to read Hyperdrive config", err.Error())
 		return
@@ -232,16 +182,16 @@ func (r *HyperdriveConfigResource) Read(ctx context.Context, req resource.ReadRe
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func (r *HyperdriveConfigResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var data HyperdriveConfigModel
+func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var data configModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	apiReq := apiHyperdriveCreateRequest{
+	apiReq := apiCreateRequest{
 		Name: data.Name.ValueString(),
-		Origin: apiHyperdriveOrigin{
+		Origin: apiOrigin{
 			Host:     data.Origin.Host.ValueString(),
 			Port:     data.Origin.Port.ValueInt64(),
 			Database: data.Origin.Database.ValueString(),
@@ -252,7 +202,7 @@ func (r *HyperdriveConfigResource) Update(ctx context.Context, req resource.Upda
 	}
 
 	apiPath := fmt.Sprintf("/accounts/%s/hyperdrive/configs/%s", r.client.AccountID, data.ID.ValueString())
-	result, err := doRequest[apiHyperdriveResponse](ctx, r.client, http.MethodPut, apiPath, apiReq)
+	result, err := shared.DoRequest[apiResponse](ctx, r.client, http.MethodPut, apiPath, apiReq)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to update Hyperdrive config", err.Error())
 		return
@@ -262,34 +212,33 @@ func (r *HyperdriveConfigResource) Update(ctx context.Context, req resource.Upda
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func (r *HyperdriveConfigResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var data HyperdriveConfigModel
+func (r *configResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var data configModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
 	apiPath := fmt.Sprintf("/accounts/%s/hyperdrive/configs/%s", r.client.AccountID, data.ID.ValueString())
-	if err := doRequestNoBody(ctx, r.client, apiPath); err != nil {
+	if err := shared.DoRequestNoBody(ctx, r.client, apiPath); err != nil {
 		resp.Diagnostics.AddError("Failed to delete Hyperdrive config", err.Error())
 		return
 	}
 }
 
-func (r *HyperdriveConfigResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	resource.ImportStatePassthroughID(ctx, schemaPath("id"), req, resp)
+func (r *configResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
-func (r *HyperdriveConfigResource) mapResponseToModel(result *apiHyperdriveResponse, data *HyperdriveConfigModel) {
+func (r *configResource) mapResponseToModel(result *apiResponse, data *configModel) {
 	data.ID = types.StringValue(result.ID)
 	data.Name = types.StringValue(result.Name)
 	if data.Origin == nil {
-		data.Origin = &HyperdriveOriginModel{}
+		data.Origin = &originModel{}
 	}
 	data.Origin.Host = types.StringValue(result.Origin.Host)
 	data.Origin.Port = types.Int64Value(result.Origin.Port)
 	data.Origin.Database = types.StringValue(result.Origin.Database)
 	data.Origin.User = types.StringValue(result.Origin.User)
 	data.Origin.Scheme = types.StringValue(result.Origin.Scheme)
-	// password / password_wo are never returned by the API
 }
