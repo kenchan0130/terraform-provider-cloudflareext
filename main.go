@@ -7,8 +7,8 @@ import (
 	"log"
 	"strings"
 
-	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/provider"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
+	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/provider"
 )
 
 //go:generate go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs generate --provider-name cloudflareext
