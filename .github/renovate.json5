@@ -1,5 +1,10 @@
 {
-  extends: ["config:best-practices", "schedule:earlyMondays", "group:allNonMajor"],
+  extends: [
+    "config:best-practices",
+    "github>aquaproj/aqua-renovate-config#2.10.0",
+    "schedule:earlyMondays",
+    "group:allNonMajor",
+  ],
   automerge: true,
   platformAutomerge: true,
   dependencyDashboard: false,
@@ -16,4 +21,5 @@
     labels: ["security"],
   },
   packageRules: [],
+  customManagers: [],
 }
