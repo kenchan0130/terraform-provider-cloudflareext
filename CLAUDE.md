@@ -60,6 +60,6 @@ make install    # Install provider locally for testing
 - Use absolute paths (`path.MatchRoot(...)`) for cross-attribute validators in nested attributes
 - Version managed in `version` file (read via `//go:embed`)
 - GitHub Actions pinned to commit SHAs with `# vX.Y.Z` comments
-- DCO sign-off required for contributions (`git commit -s`)
+- DCO sign-off required for contributions (`git commit -s`). All commits must have `Signed-off-by` line — the DCO bot will reject PRs with unsigned commits
 - License: Apache 2.0
 - Before creating a pull request, always run `make fmt`, `go generate ./...`, and `make test` to ensure no formatting, generation, or test failures
