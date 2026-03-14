@@ -20,12 +20,12 @@ type originModel struct {
 	User                        types.String `tfsdk:"user"`
 	Password                    types.String `tfsdk:"password"`
 	PasswordWO                  types.String `tfsdk:"password_wo"`
-	PasswordWOVersion           types.Int64  `tfsdk:"password_wo_version"`
+	PasswordWOVersion           types.String `tfsdk:"password_wo_version"`
 	Scheme                      types.String `tfsdk:"scheme"`
 	AccessClientID              types.String `tfsdk:"access_client_id"`
 	AccessClientSecret          types.String `tfsdk:"access_client_secret"`
 	AccessClientSecretWO        types.String `tfsdk:"access_client_secret_wo"`
-	AccessClientSecretWOVersion types.Int64  `tfsdk:"access_client_secret_wo_version"`
+	AccessClientSecretWOVersion types.String `tfsdk:"access_client_secret_wo_version"`
 }
 
 // cachingModel represents the caching configuration.

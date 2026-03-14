@@ -111,7 +111,7 @@ func originSchemaAttribute() schema.Attribute {
 					),
 				},
 			},
-			"password_wo_version": schema.Int64Attribute{
+			"password_wo_version": schema.StringAttribute{
 				Description: "A version number that should be incremented each time `password_wo` changes. " +
 					"Since `password_wo` is write-only and not stored in state, " +
 					"Terraform cannot detect when it changes. " +
@@ -157,7 +157,7 @@ func originSchemaAttribute() schema.Attribute {
 					),
 				},
 			},
-			"access_client_secret_wo_version": schema.Int64Attribute{
+			"access_client_secret_wo_version": schema.StringAttribute{
 				Description: "A version number that should be incremented each time `access_client_secret_wo` changes. " +
 					"Since `access_client_secret_wo` is write-only and not stored in state, " +
 					"Terraform cannot detect when it changes. " +

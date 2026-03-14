@@ -80,7 +80,7 @@ func (r *secretResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 					),
 				},
 			},
-			"value_wo_version": schema.Int64Attribute{
+			"value_wo_version": schema.StringAttribute{
 				Description: "A version number that should be incremented each time `value_wo` changes. " +
 					"Since `value_wo` is write-only and not stored in state, " +
 					"Terraform cannot detect when it changes. " +

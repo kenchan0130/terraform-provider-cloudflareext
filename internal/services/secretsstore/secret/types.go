@@ -8,7 +8,7 @@ type model struct {
 	Name           types.String `tfsdk:"name"`
 	Value          types.String `tfsdk:"value"`
 	ValueWO        types.String `tfsdk:"value_wo"`
-	ValueWOVersion types.Int64  `tfsdk:"value_wo_version"`
+	ValueWOVersion types.String `tfsdk:"value_wo_version"`
 	Comment        types.String `tfsdk:"comment"`
 	Scopes         types.List   `tfsdk:"scopes"`
 	Status         types.String `tfsdk:"status"`

@@ -143,7 +143,7 @@ resource "cloudflareext_secrets_store_secret" "test" {
   store_id         = "store-001"
   name             = "MY_SECRET"
   value_wo         = "super-secret-value"
-  value_wo_version = 1
+  value_wo_version = "1"
   comment          = "test secret"
   scopes           = ["workers"]
 }
@@ -178,7 +178,7 @@ resource "cloudflareext_secrets_store_secret" "test" {
   store_id         = "store-001"
   name             = "MY_SECRET"
   value_wo         = "super-secret-value"
-  value_wo_version = 1
+  value_wo_version = "1"
   comment          = "test secret"
   scopes           = ["workers"]
 }
@@ -211,7 +211,7 @@ resource "cloudflareext_secrets_store_secret" "test" {
   store_id         = "store-001"
   name             = "MY_SECRET"
   value_wo         = "new-secret-value"
-  value_wo_version = 2
+  value_wo_version = "2"
   comment          = "updated comment"
   scopes           = ["workers"]
 }
@@ -261,7 +261,7 @@ resource "cloudflareext_secrets_store_secret" "test" {
   store_id = "store-001"
   name     = "MY_SECRET"
   value_wo         = "super-secret-value"
-  value_wo_version = 1
+  value_wo_version = "1"
   comment          = "test secret"
   scopes           = ["workers", "ai_gateway"]
 }
@@ -299,7 +299,7 @@ resource "cloudflareext_secrets_store_secret" "test" {
   store_id = "store-001"
   name     = "MY_SECRET"
   value_wo         = "super-secret-value"
-  value_wo_version = 1
+  value_wo_version = "1"
   scopes           = ["workers"]
 }
 `),

@@ -149,7 +149,7 @@ resource "cloudflareext_hyperdrive_config" "test" {
     database = "mydb"
     user     = "dbuser"
     password_wo         = "dbpass"
-    password_wo_version = 1
+    password_wo_version = "1"
   }
 }
 `),
@@ -187,7 +187,7 @@ resource "cloudflareext_hyperdrive_config" "test" {
     database = "mydb"
     user     = "dbuser"
     password_wo         = "dbpass"
-    password_wo_version = 1
+    password_wo_version = "1"
   }
 }
 `),
@@ -220,7 +220,7 @@ resource "cloudflareext_hyperdrive_config" "test" {
     database = "mydb"
     user     = "dbuser"
     password_wo         = "dbpass"
-    password_wo_version = 1
+    password_wo_version = "1"
   }
 }
 `),
@@ -291,7 +291,7 @@ resource "cloudflareext_hyperdrive_config" "test" {
     database = "mydb"
     user     = "dbuser"
     password_wo         = "dbpass"
-    password_wo_version = 1
+    password_wo_version = "1"
   }
 }
 `),
@@ -363,7 +363,7 @@ resource "cloudflareext_hyperdrive_config" "test" {
     database = "mydb"
     user     = "dbuser"
     password_wo         = "dbpass"
-    password_wo_version = 1
+    password_wo_version = "1"
     scheme   = "mysql"
   }
 }
@@ -395,7 +395,7 @@ resource "cloudflareext_hyperdrive_config" "test" {
     database = "mydb"
     user     = "dbuser"
     password_wo         = "dbpass"
-    password_wo_version = 1
+    password_wo_version = "1"
   }
   caching = {
     disabled               = false
@@ -440,7 +440,7 @@ resource "cloudflareext_hyperdrive_config" "test" {
     database = "mydb"
     user     = "dbuser"
     password_wo         = "dbpass"
-    password_wo_version = 1
+    password_wo_version = "1"
   }
 }
 `),
