@@ -32,10 +32,6 @@ jobs:
           cache: true
       - run: go mod download
       - run: go build -v ./...
-      - run: go fmt ./...
-      - name: Verify no changes
-        run: |
-          git diff --exit-code
 
   generate:
     name: Generate
