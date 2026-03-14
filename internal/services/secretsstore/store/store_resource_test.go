@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"regexp"
+	"strconv"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -28,12 +29,45 @@ type testStoreResponse struct {
 	Modified string `json:"modified"`
 }
 
+// newPaginatedListResponder creates a responder for paginated list endpoints.
+// It returns the given stores on page 1, and an empty result on subsequent pages.
+func newPaginatedListResponder(stores []testStoreResponse) httpmock.Responder {
+	return func(req *http.Request) (*http.Response, error) {
+		page := 1
+		if p := req.URL.Query().Get("page"); p != "" {
+			page, _ = strconv.Atoi(p)
+		}
+		if page > 1 {
+			return httpmock.NewJsonResponse(200, shared.CloudflareResponse[[]testStoreResponse]{
+				Success: true,
+				Result:  []testStoreResponse{},
+				ResultInfo: &shared.ResultInfo{
+					Page:       page,
+					PerPage:    20,
+					TotalPages: 1,
+					Count:      0,
+					TotalCount: len(stores),
+				},
+			})
+		}
+		return httpmock.NewJsonResponse(200, shared.CloudflareResponse[[]testStoreResponse]{
+			Success: true,
+			Result:  stores,
+			ResultInfo: &shared.ResultInfo{
+				Page:       1,
+				PerPage:    20,
+				TotalPages: 1,
+				Count:      len(stores),
+				TotalCount: len(stores),
+			},
+		})
+	}
+}
+
 func setupStoreStoreMock() {
 	baseURL := "https://api.cloudflare.example.com/client/v4/accounts/test-account-id/secrets_store/stores"
 
 	// POST /accounts/{account_id}/secrets_store/stores
-	// Request body is an array: [{"name": "..."}]
-	// Response result is an array: [{"id": "...", "name": "...", "created": "...", "modified": "..."}]
 	httpmock.RegisterResponder(http.MethodPost, baseURL,
 		func(req *http.Request) (*http.Response, error) {
 			var body []testStoreCreateRequest
@@ -49,8 +83,8 @@ func setupStoreStoreMock() {
 					{
 						ID:       "store-001",
 						Name:     body[0].Name,
-						Created:  "2025-01-01T00:00:00.000000Z",
-						Modified: "2025-01-01T00:00:00.000000Z",
+						Created:  "2025-01-01T00:00:00Z",
+						Modified: "2025-01-01T00:00:00Z",
 					},
 				},
 			}
@@ -59,17 +93,13 @@ func setupStoreStoreMock() {
 	)
 
 	// GET /accounts/{account_id}/secrets_store/stores
-	// Response result is an array of all stores (no single-GET endpoint).
 	httpmock.RegisterResponder(http.MethodGet, baseURL,
-		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[[]testStoreResponse]{
-			Success: true,
-			Result: []testStoreResponse{
-				{
-					ID:       "store-001",
-					Name:     "my-store",
-					Created:  "2025-01-01T00:00:00.000000Z",
-					Modified: "2025-01-01T00:00:00.000000Z",
-				},
+		newPaginatedListResponder([]testStoreResponse{
+			{
+				ID:       "store-001",
+				Name:     "my-store",
+				Created:  "2025-01-01T00:00:00Z",
+				Modified: "2025-01-01T00:00:00Z",
 			},
 		}),
 	)
@@ -81,8 +111,8 @@ func setupStoreStoreMock() {
 			Result: testStoreResponse{
 				ID:       "store-001",
 				Name:     "my-store",
-				Created:  "2025-01-01T00:00:00.000000Z",
-				Modified: "2025-01-01T00:00:00.000000Z",
+				Created:  "2025-01-01T00:00:00Z",
+				Modified: "2025-01-01T00:00:00Z",
 			},
 		}),
 	)
@@ -106,8 +136,8 @@ resource "cloudflareext_secrets_store" "test" {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					testutil.CheckResourceAttr("cloudflareext_secrets_store.test", "id", "store-001"),
 					testutil.CheckResourceAttr("cloudflareext_secrets_store.test", "name", "my-store"),
-					testutil.CheckResourceAttr("cloudflareext_secrets_store.test", "created", "2025-01-01T00:00:00.000000Z"),
-					testutil.CheckResourceAttr("cloudflareext_secrets_store.test", "modified", "2025-01-01T00:00:00.000000Z"),
+					testutil.CheckResourceAttr("cloudflareext_secrets_store.test", "created", "2025-01-01T00:00:00Z"),
+					testutil.CheckResourceAttr("cloudflareext_secrets_store.test", "modified", "2025-01-01T00:00:00Z"),
 				),
 			},
 		},
@@ -157,23 +187,20 @@ resource "cloudflareext_secrets_store" "test" {
 										{
 											ID:       "store-002",
 											Name:     body[0].Name,
-											Created:  "2025-01-02T00:00:00.000000Z",
-											Modified: "2025-01-02T00:00:00.000000Z",
+											Created:  "2025-01-02T00:00:00Z",
+											Modified: "2025-01-02T00:00:00Z",
 										},
 									},
 								})
 							},
 						)
 						httpmock.RegisterResponder(http.MethodGet, baseURL,
-							httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[[]testStoreResponse]{
-								Success: true,
-								Result: []testStoreResponse{
-									{
-										ID:       "store-002",
-										Name:     "my-new-store",
-										Created:  "2025-01-02T00:00:00.000000Z",
-										Modified: "2025-01-02T00:00:00.000000Z",
-									},
+							newPaginatedListResponder([]testStoreResponse{
+								{
+									ID:       "store-002",
+									Name:     "my-new-store",
+									Created:  "2025-01-02T00:00:00Z",
+									Modified: "2025-01-02T00:00:00Z",
 								},
 							}),
 						)
@@ -217,7 +244,7 @@ resource "cloudflareext_secrets_store" "test" {
   name = "my-store"
 }
 `),
-				ExpectError: regexp.MustCompile(`Authentication error`),
+				ExpectError: regexp.MustCompile(`403 Forbidden`),
 			},
 		},
 	})
@@ -247,13 +274,13 @@ resource "cloudflareext_secrets_store" "test" {
 				PreConfig: func() {
 					if readCount == 0 {
 						httpmock.RegisterResponder(http.MethodGet, baseURL,
-							httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[[]testStoreResponse]{
-								Success: true,
-								Result:  []testStoreResponse{},
-							}),
+							newPaginatedListResponder([]testStoreResponse{}),
 						)
 						httpmock.RegisterResponder(http.MethodDelete, baseURL+"/store-003",
-							httpmock.NewStringResponder(200, `{"success":true,"result":null}`),
+							httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[testStoreResponse]{
+								Success: true,
+								Result:  testStoreResponse{ID: "store-003", Name: "my-store"},
+							}),
 						)
 						httpmock.RegisterResponder(http.MethodPost, baseURL,
 							func(req *http.Request) (*http.Response, error) {
@@ -262,15 +289,12 @@ resource "cloudflareext_secrets_store" "test" {
 									return httpmock.NewStringResponse(400, ""), nil
 								}
 								httpmock.RegisterResponder(http.MethodGet, baseURL,
-									httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[[]testStoreResponse]{
-										Success: true,
-										Result: []testStoreResponse{
-											{
-												ID:       "store-003",
-												Name:     body[0].Name,
-												Created:  "2025-01-03T00:00:00.000000Z",
-												Modified: "2025-01-03T00:00:00.000000Z",
-											},
+									newPaginatedListResponder([]testStoreResponse{
+										{
+											ID:       "store-003",
+											Name:     body[0].Name,
+											Created:  "2025-01-03T00:00:00Z",
+											Modified: "2025-01-03T00:00:00Z",
 										},
 									}),
 								)
@@ -280,8 +304,8 @@ resource "cloudflareext_secrets_store" "test" {
 										{
 											ID:       "store-003",
 											Name:     body[0].Name,
-											Created:  "2025-01-03T00:00:00.000000Z",
-											Modified: "2025-01-03T00:00:00.000000Z",
+											Created:  "2025-01-03T00:00:00Z",
+											Modified: "2025-01-03T00:00:00Z",
 										},
 									},
 								})

@@ -127,7 +127,9 @@ func setupHyperdriveMock() {
 
 	httpmock.RegisterResponder(http.MethodDelete,
 		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-test-id-001",
-		httpmock.NewStringResponder(200, `{"success":true,"result":null}`),
+		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[any]{
+			Success: true,
+		}),
 	)
 }
 
@@ -347,7 +349,9 @@ func TestUnitHyperdriveConfig_CustomPort(t *testing.T) {
 
 	httpmock.RegisterResponder(http.MethodDelete,
 		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-test-id-002",
-		httpmock.NewStringResponder(200, `{"success":true,"result":null}`),
+		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[any]{
+			Success: true,
+		}),
 	)
 
 	resource.UnitTest(t, resource.TestCase{
@@ -444,7 +448,7 @@ resource "cloudflareext_hyperdrive_config" "test" {
   }
 }
 `),
-				ExpectError: regexp.MustCompile(`Authentication error`),
+				ExpectError: regexp.MustCompile(`403 Forbidden`),
 			},
 		},
 	})

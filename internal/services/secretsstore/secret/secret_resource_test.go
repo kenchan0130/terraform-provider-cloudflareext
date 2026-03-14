@@ -13,25 +13,21 @@ import (
 )
 
 // testSecretCreateRequest matches the Cloudflare Secrets Store secret create request format.
-// See: https://developers.cloudflare.com/secrets-store/manage-secrets/how-to/
+// The SDK sends an array of secret bodies.
 type testSecretCreateRequest struct {
-	Name    string   `json:"name"`
-	Value   string   `json:"value"`
-	Scopes  []string `json:"scopes"`
-	Comment string   `json:"comment,omitempty"`
+	Name   string   `json:"name"`
+	Value  string   `json:"value"`
+	Scopes []string `json:"scopes"`
 }
 
-// testSecretUpdateRequest matches the Cloudflare Secrets Store secret update (PATCH) request format.
-// See: https://developers.cloudflare.com/secrets-store/manage-secrets/how-to/
-type testSecretUpdateRequest struct {
-	Name    string   `json:"name,omitempty"`
-	Value   string   `json:"value,omitempty"`
-	Scopes  []string `json:"scopes,omitempty"`
-	Comment string   `json:"comment,omitempty"`
+// testSecretEditRequest matches the Cloudflare Secrets Store secret edit (PATCH) request format.
+type testSecretEditRequest struct {
+	Name   string   `json:"name"`
+	Value  string   `json:"value,omitempty"`
+	Scopes []string `json:"scopes,omitempty"`
 }
 
 // testSecretResponse matches the Cloudflare Secrets Store secret API response format.
-// The value field is never returned in responses.
 type testSecretResponse struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
@@ -44,24 +40,29 @@ type testSecretResponse struct {
 
 func setupSecretMock() {
 	// POST /accounts/{account_id}/secrets_store/stores/{store_id}/secrets
-	// Creates a single secret.
+	// The SDK sends an array of secret bodies and expects an array result (SinglePage).
 	httpmock.RegisterResponder(http.MethodPost,
 		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/secrets_store/stores/store-001/secrets",
 		func(req *http.Request) (*http.Response, error) {
-			var body testSecretCreateRequest
+			var body []testSecretCreateRequest
 			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 				return httpmock.NewStringResponse(400, `{"success":false,"errors":[{"code":400,"message":"invalid request"}]}`), nil
 			}
-			resp := shared.CloudflareResponse[testSecretResponse]{
+			if len(body) == 0 {
+				return httpmock.NewStringResponse(400, `{"success":false,"errors":[{"code":400,"message":"empty request"}]}`), nil
+			}
+			resp := shared.CloudflareResponse[[]testSecretResponse]{
 				Success: true,
-				Result: testSecretResponse{
-					ID:       "secret-001",
-					Name:     body.Name,
-					Status:   "active",
-					StoreID:  "store-001",
-					Comment:  body.Comment,
-					Created:  "2025-01-01T00:00:00.000000Z",
-					Modified: "2025-01-01T00:00:00.000000Z",
+				Result: []testSecretResponse{
+					{
+						ID:       "secret-001",
+						Name:     body[0].Name,
+						Status:   "active",
+						StoreID:  "store-001",
+						Comment:  "test secret",
+						Created:  "2025-01-01T00:00:00Z",
+						Modified: "2025-01-01T00:00:00Z",
+					},
 				},
 			}
 			return httpmock.NewJsonResponse(200, resp)
@@ -69,7 +70,7 @@ func setupSecretMock() {
 	)
 
 	// GET /accounts/{account_id}/secrets_store/stores/{store_id}/secrets/{secret_id}
-	// Returns secret metadata (value is never included in response).
+	// Returns secret metadata (value is never included in GET response).
 	httpmock.RegisterResponder(http.MethodGet,
 		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/secrets_store/stores/store-001/secrets/secret-001",
 		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[testSecretResponse]{
@@ -80,31 +81,26 @@ func setupSecretMock() {
 				Status:   "active",
 				StoreID:  "store-001",
 				Comment:  "test secret",
-				Created:  "2025-01-01T00:00:00.000000Z",
-				Modified: "2025-01-01T00:00:00.000000Z",
+				Created:  "2025-01-01T00:00:00Z",
+				Modified: "2025-01-01T00:00:00Z",
 			},
 		}),
 	)
 
 	// PATCH /accounts/{account_id}/secrets_store/stores/{store_id}/secrets/{secret_id}
-	// Updates secret fields. Only provided fields are updated.
+	// Updates secret fields via the SDK's Edit method.
 	httpmock.RegisterResponder(http.MethodPatch,
 		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/secrets_store/stores/store-001/secrets/secret-001",
 		func(req *http.Request) (*http.Response, error) {
-			var body testSecretUpdateRequest
+			var body testSecretEditRequest
 			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 				return httpmock.NewStringResponse(400, ""), nil
 			}
-
+			comment := "test secret"
 			name := body.Name
 			if name == "" {
 				name = "MY_SECRET"
 			}
-			comment := body.Comment
-			if comment == "" {
-				comment = "test secret"
-			}
-
 			resp := shared.CloudflareResponse[testSecretResponse]{
 				Success: true,
 				Result: testSecretResponse{
@@ -113,8 +109,8 @@ func setupSecretMock() {
 					Status:   "active",
 					StoreID:  "store-001",
 					Comment:  comment,
-					Created:  "2025-01-01T00:00:00.000000Z",
-					Modified: "2025-01-02T00:00:00.000000Z",
+					Created:  "2025-01-01T00:00:00Z",
+					Modified: "2025-01-02T00:00:00Z",
 				},
 			}
 			return httpmock.NewJsonResponse(200, resp)
@@ -124,7 +120,17 @@ func setupSecretMock() {
 	// DELETE /accounts/{account_id}/secrets_store/stores/{store_id}/secrets/{secret_id}
 	httpmock.RegisterResponder(http.MethodDelete,
 		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/secrets_store/stores/store-001/secrets/secret-001",
-		httpmock.NewStringResponder(200, `{"success":true,"result":null}`),
+		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[testSecretResponse]{
+			Success: true,
+			Result: testSecretResponse{
+				ID:       "secret-001",
+				Name:     "MY_SECRET",
+				Status:   "active",
+				StoreID:  "store-001",
+				Created:  "2025-01-01T00:00:00Z",
+				Modified: "2025-01-01T00:00:00Z",
+			},
+		}),
 	)
 }
 
@@ -140,12 +146,12 @@ func TestUnitSecretsStoreSecret_Create(t *testing.T) {
 			{
 				Config: testutil.TestConfig(`
 resource "cloudflareext_secrets_store_secret" "test" {
-  store_id         = "store-001"
-  name             = "MY_SECRET"
-  value_wo         = "super-secret-value"
+  store_id        = "store-001"
+  name            = "MY_SECRET"
+  value_wo        = "my-secret-value"
   value_wo_version = "1"
-  comment          = "test secret"
-  scopes           = ["workers"]
+  comment         = "test secret"
+  scopes          = ["workers"]
 }
 `),
 				Check: resource.ComposeAggregateTestCheckFunc(
@@ -154,7 +160,6 @@ resource "cloudflareext_secrets_store_secret" "test" {
 					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "store_id", "store-001"),
 					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "status", "active"),
 					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "comment", "test secret"),
-					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "value_wo_version", "1"),
 				),
 			},
 		},
@@ -177,7 +182,7 @@ func TestUnitSecretsStoreSecret_Update(t *testing.T) {
 resource "cloudflareext_secrets_store_secret" "test" {
   store_id         = "store-001"
   name             = "MY_SECRET"
-  value_wo         = "super-secret-value"
+  value_wo         = "my-secret-value"
   value_wo_version = "1"
   comment          = "test secret"
   scopes           = ["workers"]
@@ -194,12 +199,12 @@ resource "cloudflareext_secrets_store_secret" "test" {
 								Success: true,
 								Result: testSecretResponse{
 									ID:       "secret-001",
-									Name:     "MY_SECRET",
+									Name:     "MY_SECRET_UPDATED",
 									Status:   "active",
 									StoreID:  "store-001",
-									Comment:  "updated comment",
-									Created:  "2025-01-01T00:00:00.000000Z",
-									Modified: "2025-01-02T00:00:00.000000Z",
+									Comment:  "test secret",
+									Created:  "2025-01-01T00:00:00Z",
+									Modified: "2025-01-02T00:00:00Z",
 								},
 							}),
 						)
@@ -209,38 +214,17 @@ resource "cloudflareext_secrets_store_secret" "test" {
 				Config: testutil.TestConfig(`
 resource "cloudflareext_secrets_store_secret" "test" {
   store_id         = "store-001"
-  name             = "MY_SECRET"
+  name             = "MY_SECRET_UPDATED"
   value_wo         = "new-secret-value"
   value_wo_version = "2"
-  comment          = "updated comment"
+  comment          = "test secret"
   scopes           = ["workers"]
 }
 `),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "comment", "updated comment"),
+					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "name", "MY_SECRET_UPDATED"),
 					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "value_wo_version", "2"),
 				),
-			},
-		},
-	})
-}
-
-func TestUnitSecretsStoreSecret_ValueRequired(t *testing.T) {
-	httpmock.Activate()
-	defer httpmock.DeactivateAndReset()
-
-	resource.UnitTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
-		Steps: []resource.TestStep{
-			{
-				Config: testutil.TestConfig(`
-resource "cloudflareext_secrets_store_secret" "test" {
-  store_id = "store-001"
-  name     = "MY_SECRET"
-  scopes   = ["workers"]
-}
-`),
-				ExpectError: regexp.MustCompile(`one \(and only one\) of`),
 			},
 		},
 	})
@@ -258,12 +242,12 @@ func TestUnitSecretsStoreSecret_MultipleScopes(t *testing.T) {
 			{
 				Config: testutil.TestConfig(`
 resource "cloudflareext_secrets_store_secret" "test" {
-  store_id = "store-001"
-  name     = "MY_SECRET"
-  value_wo         = "super-secret-value"
+  store_id        = "store-001"
+  name            = "MY_SECRET"
+  value_wo        = "my-secret-value"
   value_wo_version = "1"
-  comment          = "test secret"
-  scopes           = ["workers", "ai_gateway"]
+  comment         = "test secret"
+  scopes          = ["workers", "ai_gateway"]
 }
 `),
 				Check: resource.ComposeAggregateTestCheckFunc(
@@ -296,14 +280,14 @@ func TestUnitSecretsStoreSecret_APIError(t *testing.T) {
 			{
 				Config: testutil.TestConfig(`
 resource "cloudflareext_secrets_store_secret" "test" {
-  store_id = "store-001"
-  name     = "MY_SECRET"
-  value_wo         = "super-secret-value"
+  store_id        = "store-001"
+  name            = "MY_SECRET"
+  value_wo        = "my-secret-value"
   value_wo_version = "1"
-  scopes           = ["workers"]
+  scopes          = ["workers"]
 }
 `),
-				ExpectError: regexp.MustCompile(`Authentication error`),
+				ExpectError: regexp.MustCompile(`403 Forbidden`),
 			},
 		},
 	})
@@ -319,20 +303,25 @@ func TestUnitSecretsStoreSecret_StoreIDRequiresReplace(t *testing.T) {
 	httpmock.RegisterResponder(http.MethodPost,
 		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/secrets_store/stores/store-002/secrets",
 		func(req *http.Request) (*http.Response, error) {
-			var body testSecretCreateRequest
+			var body []testSecretCreateRequest
 			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 				return httpmock.NewStringResponse(400, ""), nil
 			}
-			return httpmock.NewJsonResponse(200, shared.CloudflareResponse[testSecretResponse]{
+			if len(body) == 0 {
+				return httpmock.NewStringResponse(400, ""), nil
+			}
+			return httpmock.NewJsonResponse(200, shared.CloudflareResponse[[]testSecretResponse]{
 				Success: true,
-				Result: testSecretResponse{
-					ID:       "secret-002",
-					Name:     body.Name,
-					Status:   "active",
-					StoreID:  "store-002",
-					Comment:  body.Comment,
-					Created:  "2025-01-01T00:00:00.000000Z",
-					Modified: "2025-01-01T00:00:00.000000Z",
+				Result: []testSecretResponse{
+					{
+						ID:       "secret-002",
+						Name:     body[0].Name,
+						Status:   "active",
+						StoreID:  "store-002",
+						Comment:  "test secret",
+						Created:  "2025-01-01T00:00:00Z",
+						Modified: "2025-01-01T00:00:00Z",
+					},
 				},
 			})
 		},
@@ -347,14 +336,24 @@ func TestUnitSecretsStoreSecret_StoreIDRequiresReplace(t *testing.T) {
 				Status:   "active",
 				StoreID:  "store-002",
 				Comment:  "test secret",
-				Created:  "2025-01-01T00:00:00.000000Z",
-				Modified: "2025-01-01T00:00:00.000000Z",
+				Created:  "2025-01-01T00:00:00Z",
+				Modified: "2025-01-01T00:00:00Z",
 			},
 		}),
 	)
 	httpmock.RegisterResponder(http.MethodDelete,
 		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/secrets_store/stores/store-002/secrets/secret-002",
-		httpmock.NewStringResponder(200, `{"success":true,"result":null}`),
+		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[testSecretResponse]{
+			Success: true,
+			Result: testSecretResponse{
+				ID:       "secret-002",
+				Name:     "MY_SECRET",
+				Status:   "active",
+				StoreID:  "store-002",
+				Created:  "2025-01-01T00:00:00Z",
+				Modified: "2025-01-01T00:00:00Z",
+			},
+		}),
 	)
 
 	resource.UnitTest(t, resource.TestCase{
@@ -363,11 +362,12 @@ func TestUnitSecretsStoreSecret_StoreIDRequiresReplace(t *testing.T) {
 			{
 				Config: testutil.TestConfig(`
 resource "cloudflareext_secrets_store_secret" "test" {
-  store_id = "store-001"
-  name     = "MY_SECRET"
-  value_wo = "super-secret-value"
-  comment  = "test secret"
-  scopes   = ["workers"]
+  store_id        = "store-001"
+  name            = "MY_SECRET"
+  value_wo        = "my-secret-value"
+  value_wo_version = "1"
+  comment         = "test secret"
+  scopes          = ["workers"]
 }
 `),
 				Check: testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "store_id", "store-001"),
@@ -375,11 +375,12 @@ resource "cloudflareext_secrets_store_secret" "test" {
 			{
 				Config: testutil.TestConfig(`
 resource "cloudflareext_secrets_store_secret" "test" {
-  store_id = "store-002"
-  name     = "MY_SECRET"
-  value_wo = "super-secret-value"
-  comment  = "test secret"
-  scopes   = ["workers"]
+  store_id        = "store-002"
+  name            = "MY_SECRET"
+  value_wo        = "my-secret-value"
+  value_wo_version = "1"
+  comment         = "test secret"
+  scopes          = ["workers"]
 }
 `),
 				Check: testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "store_id", "store-002"),

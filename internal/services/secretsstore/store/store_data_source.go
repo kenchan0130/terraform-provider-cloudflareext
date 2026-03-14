@@ -3,8 +3,10 @@ package store
 import (
 	"context"
 	"fmt"
-	"net/http"
+	"time"
 
+	cloudflare "github.com/cloudflare/cloudflare-go/v4"
+	"github.com/cloudflare/cloudflare-go/v4/secrets_store"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -80,24 +82,25 @@ func (d *storeDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 		return
 	}
 
-	apiPath := fmt.Sprintf("/accounts/%s/secrets_store/stores", d.client.AccountID)
-	result, err := shared.DoRequest[[]apiResponse](ctx, d.client, http.MethodGet, apiPath, nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Failed to list Secrets Stores", err.Error())
-		return
-	}
-
 	name := data.Name.ValueString()
-	for _, store := range *result {
+	iter := d.client.Client.SecretsStore.Stores.ListAutoPaging(ctx, secrets_store.StoreListParams{
+		AccountID: cloudflare.F(d.client.AccountID),
+	})
+	for iter.Next() {
+		store := iter.Current()
 		if store.Name == name {
 			data.ID = types.StringValue(store.ID)
 			data.Name = types.StringValue(store.Name)
-			data.Created = types.StringValue(store.Created)
-			data.Modified = types.StringValue(store.Modified)
+			data.Created = types.StringValue(store.Created.Format(time.RFC3339Nano))
+			data.Modified = types.StringValue(store.Modified.Format(time.RFC3339Nano))
 
 			resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 			return
 		}
+	}
+	if err := iter.Err(); err != nil {
+		resp.Diagnostics.AddError("Failed to list Secrets Stores", err.Error())
+		return
 	}
 
 	resp.Diagnostics.AddError(
