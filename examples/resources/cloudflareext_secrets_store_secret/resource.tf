@@ -14,8 +14,4 @@ resource "cloudflareext_secrets_store_secret" "example" {
   value_wo_version = "1"
   comment          = "Managed by Terraform"
   scopes           = ["workers"]
-
-  lifecycle {
-    ignore_changes = [value]
-  }
 }
