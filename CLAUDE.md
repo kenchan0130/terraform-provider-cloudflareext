@@ -62,4 +62,5 @@ make install    # Install provider locally for testing
 - GitHub Actions pinned to commit SHAs with `# vX.Y.Z` comments
 - DCO sign-off required for contributions (`git commit -s`). All commits must have a `Signed-off-by` line — the DCO bot will reject PRs with unsigned commits
 - License: Apache 2.0
+- When modifying resource/data source schemas, always update the corresponding example files in `examples/` as well. These examples are used by `make generate` ([tfplugindocs](https://github.com/hashicorp/terraform-plugin-docs)) to produce documentation. If a new resource or data source is added, create the necessary example files and templates following the tfplugindocs conventions
 - Before creating a pull request, always run `make fmt`, `go generate ./...`, `make generate`, and `make test` to ensure no formatting, code generation, documentation generation, or test failures

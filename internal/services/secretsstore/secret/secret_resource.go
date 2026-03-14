@@ -3,8 +3,10 @@ package secret
 import (
 	"context"
 	"fmt"
-	"net/http"
+	"time"
 
+	cloudflare "github.com/cloudflare/cloudflare-go/v4"
+	"github.com/cloudflare/cloudflare-go/v4/secrets_store"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -34,7 +36,7 @@ func (r *secretResource) Metadata(_ context.Context, req resource.MetadataReques
 func (r *secretResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Description: "Manages a Cloudflare Secrets Store secret. " +
-			"The secret value is never stored in Terraform state when using `value_wo`.",
+			"Supports write-only attributes to prevent secrets from being stored in Terraform state.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Description: "The unique identifier of the secret.",
@@ -147,21 +149,44 @@ func (r *secretResource) Create(ctx context.Context, req resource.CreateRequest,
 		return
 	}
 
-	apiReq := apiCreateRequest{
-		Name:    data.Name.ValueString(),
-		Value:   r.resolveValue(&data),
-		Scopes:  scopes,
-		Comment: data.Comment.ValueString(),
+	secretBody := secrets_store.StoreSecretNewParamsBody{
+		Name:   cloudflare.F(data.Name.ValueString()),
+		Value:  cloudflare.F(r.resolveValue(&data)),
+		Scopes: cloudflare.F(scopes),
 	}
 
-	apiPath := fmt.Sprintf("/accounts/%s/secrets_store/stores/%s/secrets", r.client.AccountID, data.StoreID.ValueString())
-	result, err := shared.DoRequest[apiResponse](ctx, r.client, http.MethodPost, apiPath, apiReq)
-	if err != nil {
+	params := secrets_store.StoreSecretNewParams{
+		AccountID: cloudflare.F(r.client.AccountID),
+		Body:      []secrets_store.StoreSecretNewParamsBody{secretBody},
+	}
+
+	iter := r.client.Client.SecretsStore.Stores.Secrets.NewAutoPaging(ctx, data.StoreID.ValueString(), params)
+	var secret *secrets_store.StoreSecretNewResponse
+	for iter.Next() {
+		item := iter.Current()
+		secret = &item
+		break
+	}
+	if err := iter.Err(); err != nil {
 		resp.Diagnostics.AddError("Failed to create secret", err.Error())
 		return
 	}
 
-	r.mapResponseToModel(result, &data)
+	if secret == nil {
+		resp.Diagnostics.AddError("Failed to create secret", "API returned empty result")
+		return
+	}
+
+	data.ID = types.StringValue(secret.ID)
+	data.Name = types.StringValue(secret.Name)
+	data.Status = types.StringValue(string(secret.Status))
+	data.StoreID = types.StringValue(secret.StoreID)
+	if secret.Comment != "" {
+		data.Comment = types.StringValue(secret.Comment)
+	}
+	data.Created = types.StringValue(secret.Created.Format(time.RFC3339Nano))
+	data.Modified = types.StringValue(secret.Modified.Format(time.RFC3339Nano))
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -172,15 +197,28 @@ func (r *secretResource) Read(ctx context.Context, req resource.ReadRequest, res
 		return
 	}
 
-	apiPath := fmt.Sprintf("/accounts/%s/secrets_store/stores/%s/secrets/%s",
-		r.client.AccountID, data.StoreID.ValueString(), data.ID.ValueString())
-	result, err := shared.DoRequest[apiResponse](ctx, r.client, http.MethodGet, apiPath, nil)
+	result, err := r.client.Client.SecretsStore.Stores.Secrets.Get(ctx,
+		data.StoreID.ValueString(),
+		data.ID.ValueString(),
+		secrets_store.StoreSecretGetParams{
+			AccountID: cloudflare.F(r.client.AccountID),
+		},
+	)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to read secret", err.Error())
 		return
 	}
 
-	r.mapResponseToModel(result, &data)
+	data.ID = types.StringValue(result.ID)
+	data.Name = types.StringValue(result.Name)
+	data.Status = types.StringValue(string(result.Status))
+	data.StoreID = types.StringValue(result.StoreID)
+	if result.Comment != "" {
+		data.Comment = types.StringValue(result.Comment)
+	}
+	data.Created = types.StringValue(result.Created.Format(time.RFC3339Nano))
+	data.Modified = types.StringValue(result.Modified.Format(time.RFC3339Nano))
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -197,22 +235,33 @@ func (r *secretResource) Update(ctx context.Context, req resource.UpdateRequest,
 		return
 	}
 
-	apiReq := apiUpdateRequest{
-		Name:    data.Name.ValueString(),
-		Value:   r.resolveValue(&data),
-		Scopes:  scopes,
-		Comment: data.Comment.ValueString(),
+	params := secrets_store.StoreSecretEditParams{
+		AccountID: cloudflare.F(r.client.AccountID),
+		Name:      cloudflare.F(data.Name.ValueString()),
+		Value:     cloudflare.F(r.resolveValue(&data)),
+		Scopes:    cloudflare.F(scopes),
 	}
 
-	apiPath := fmt.Sprintf("/accounts/%s/secrets_store/stores/%s/secrets/%s",
-		r.client.AccountID, data.StoreID.ValueString(), data.ID.ValueString())
-	result, err := shared.DoRequest[apiResponse](ctx, r.client, http.MethodPatch, apiPath, apiReq)
+	result, err := r.client.Client.SecretsStore.Stores.Secrets.Edit(ctx,
+		data.StoreID.ValueString(),
+		data.ID.ValueString(),
+		params,
+	)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to update secret", err.Error())
 		return
 	}
 
-	r.mapResponseToModel(result, &data)
+	data.ID = types.StringValue(result.ID)
+	data.Name = types.StringValue(result.Name)
+	data.Status = types.StringValue(string(result.Status))
+	data.StoreID = types.StringValue(result.StoreID)
+	if result.Comment != "" {
+		data.Comment = types.StringValue(result.Comment)
+	}
+	data.Created = types.StringValue(result.Created.Format(time.RFC3339Nano))
+	data.Modified = types.StringValue(result.Modified.Format(time.RFC3339Nano))
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -223,22 +272,15 @@ func (r *secretResource) Delete(ctx context.Context, req resource.DeleteRequest,
 		return
 	}
 
-	apiPath := fmt.Sprintf("/accounts/%s/secrets_store/stores/%s/secrets/%s",
-		r.client.AccountID, data.StoreID.ValueString(), data.ID.ValueString())
-	if err := shared.DoRequestNoBody(ctx, r.client, apiPath); err != nil {
+	_, err := r.client.Client.SecretsStore.Stores.Secrets.Delete(ctx,
+		data.StoreID.ValueString(),
+		data.ID.ValueString(),
+		secrets_store.StoreSecretDeleteParams{
+			AccountID: cloudflare.F(r.client.AccountID),
+		},
+	)
+	if err != nil {
 		resp.Diagnostics.AddError("Failed to delete secret", err.Error())
 		return
 	}
-}
-
-func (r *secretResource) mapResponseToModel(result *apiResponse, data *model) {
-	data.ID = types.StringValue(result.ID)
-	data.Name = types.StringValue(result.Name)
-	data.Status = types.StringValue(result.Status)
-	data.StoreID = types.StringValue(result.StoreID)
-	if result.Comment != "" {
-		data.Comment = types.StringValue(result.Comment)
-	}
-	data.Created = types.StringValue(result.Created)
-	data.Modified = types.StringValue(result.Modified)
 }

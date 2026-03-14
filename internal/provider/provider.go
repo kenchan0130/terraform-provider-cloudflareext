@@ -2,17 +2,16 @@ package provider
 
 import (
 	"context"
-	"net/http"
 	"os"
 
-	"github.com/hashicorp/go-retryablehttp"
+	cloudflare "github.com/cloudflare/cloudflare-go/v4"
+	"github.com/cloudflare/cloudflare-go/v4/option"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/provider/shared"
 	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/hyperdrive"
 	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/secretsstore/secret"
@@ -75,10 +74,10 @@ func (p *CloudflareExtProvider) Schema(_ context.Context, _ provider.SchemaReque
 	}
 }
 
-func (p *CloudflareExtProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
+func (p *CloudflareExtProvider) Configure(_ context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
 	var config CloudflareExtProviderModel
 
-	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	resp.Diagnostics.Append(req.Config.Get(context.Background(), &config)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -119,22 +118,15 @@ func (p *CloudflareExtProvider) Configure(ctx context.Context, req provider.Conf
 		baseURL = config.BaseURL.ValueString()
 	}
 
-	retryClient := retryablehttp.NewClient()
-	retryClient.HTTPClient = http.DefaultClient
-	retryClient.Logger = nil
-	retryClient.RequestLogHook = func(_ retryablehttp.Logger, req *http.Request, retryNumber int) {
-		tflog.Warn(req.Context(), "retrying API request", map[string]any{
-			"method":       req.Method,
-			"url":          req.URL.String(),
-			"retry_number": retryNumber,
-		})
+	opts := []option.RequestOption{
+		option.WithAPIToken(apiToken),
+		option.WithBaseURL(baseURL),
 	}
+	cfClient := cloudflare.NewClient(opts...)
 
 	client := &shared.CloudflareClient{
-		HTTPClient: retryClient.StandardClient(),
-		BaseURL:    baseURL,
-		APIToken:   apiToken,
-		AccountID:  accountID,
+		Client:    cfClient,
+		AccountID: accountID,
 	}
 
 	resp.DataSourceData = client

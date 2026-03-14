@@ -17,25 +17,20 @@ func TestUnitSecretsStoreDataSource_Read(t *testing.T) {
 	defer httpmock.DeactivateAndReset()
 
 	// GET /accounts/{account_id}/secrets_store/stores
-	// Response result is an array of all stores.
-	// See: https://developers.cloudflare.com/api/resources/secrets_store/subresources/stores/methods/list/
 	httpmock.RegisterResponder(http.MethodGet,
 		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/secrets_store/stores",
-		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[[]testStoreResponse]{
-			Success: true,
-			Result: []testStoreResponse{
-				{
-					ID:       "store-001",
-					Name:     "my-store",
-					Created:  "2025-01-01T00:00:00.000000Z",
-					Modified: "2025-01-01T00:00:00.000000Z",
-				},
-				{
-					ID:       "store-002",
-					Name:     "other-store",
-					Created:  "2025-01-02T00:00:00.000000Z",
-					Modified: "2025-01-02T00:00:00.000000Z",
-				},
+		newPaginatedListResponder([]testStoreResponse{
+			{
+				ID:       "store-001",
+				Name:     "my-store",
+				Created:  "2025-01-01T00:00:00Z",
+				Modified: "2025-01-01T00:00:00Z",
+			},
+			{
+				ID:       "store-002",
+				Name:     "other-store",
+				Created:  "2025-01-02T00:00:00Z",
+				Modified: "2025-01-02T00:00:00Z",
 			},
 		}),
 	)
@@ -52,8 +47,8 @@ data "cloudflareext_secrets_store" "test" {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("data.cloudflareext_secrets_store.test", "id", "store-001"),
 					resource.TestCheckResourceAttr("data.cloudflareext_secrets_store.test", "name", "my-store"),
-					resource.TestCheckResourceAttr("data.cloudflareext_secrets_store.test", "created", "2025-01-01T00:00:00.000000Z"),
-					resource.TestCheckResourceAttr("data.cloudflareext_secrets_store.test", "modified", "2025-01-01T00:00:00.000000Z"),
+					resource.TestCheckResourceAttr("data.cloudflareext_secrets_store.test", "created", "2025-01-01T00:00:00Z"),
+					resource.TestCheckResourceAttr("data.cloudflareext_secrets_store.test", "modified", "2025-01-01T00:00:00Z"),
 				),
 			},
 		},
@@ -66,10 +61,7 @@ func TestUnitSecretsStoreDataSource_NotFound(t *testing.T) {
 
 	httpmock.RegisterResponder(http.MethodGet,
 		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/secrets_store/stores",
-		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[[]testStoreResponse]{
-			Success: true,
-			Result:  []testStoreResponse{},
-		}),
+		newPaginatedListResponder([]testStoreResponse{}),
 	)
 
 	resource.UnitTest(t, resource.TestCase{
@@ -110,7 +102,7 @@ data "cloudflareext_secrets_store" "test" {
   name = "my-store"
 }
 `),
-				ExpectError: regexp.MustCompile(`Authentication error`),
+				ExpectError: regexp.MustCompile(`403 Forbidden`),
 			},
 		},
 	})

@@ -3,8 +3,9 @@ package hyperdrive
 import (
 	"context"
 	"fmt"
-	"net/http"
 
+	cloudflare "github.com/cloudflare/cloudflare-go/v4"
+	"github.com/cloudflare/cloudflare-go/v4/hyperdrive"
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -266,61 +267,67 @@ func (r *configResource) resolveAccessClientSecret(origin *originModel) string {
 	return ""
 }
 
-func (r *configResource) buildAPIRequest(data *configModel) apiCreateRequest {
-	apiReq := apiCreateRequest{
-		Name: data.Name.ValueString(),
-		Origin: apiOrigin{
-			Host:     data.Origin.Host.ValueString(),
-			Port:     data.Origin.Port.ValueInt64(),
-			Database: data.Origin.Database.ValueString(),
-			User:     data.Origin.User.ValueString(),
-			Password: r.resolvePassword(data.Origin),
-			Scheme:   data.Origin.Scheme.ValueString(),
-		},
+func (r *configResource) buildSDKParams(data *configModel) hyperdrive.HyperdriveParam {
+	var origin hyperdrive.HyperdriveOriginUnionParam
+	if !data.Origin.AccessClientID.IsNull() && !data.Origin.AccessClientID.IsUnknown() {
+		origin = hyperdrive.HyperdriveOriginAccessProtectedDatabaseBehindCloudflareTunnelParam{
+			Host:               cloudflare.F(data.Origin.Host.ValueString()),
+			Database:           cloudflare.F(data.Origin.Database.ValueString()),
+			User:               cloudflare.F(data.Origin.User.ValueString()),
+			Password:           cloudflare.F(r.resolvePassword(data.Origin)),
+			Scheme:             cloudflare.F(hyperdrive.HyperdriveOriginAccessProtectedDatabaseBehindCloudflareTunnelScheme(data.Origin.Scheme.ValueString())),
+			AccessClientID:     cloudflare.F(data.Origin.AccessClientID.ValueString()),
+			AccessClientSecret: cloudflare.F(r.resolveAccessClientSecret(data.Origin)),
+		}
+	} else {
+		origin = hyperdrive.HyperdriveOriginPublicDatabaseParam{
+			Host:     cloudflare.F(data.Origin.Host.ValueString()),
+			Port:     cloudflare.F(data.Origin.Port.ValueInt64()),
+			Database: cloudflare.F(data.Origin.Database.ValueString()),
+			User:     cloudflare.F(data.Origin.User.ValueString()),
+			Password: cloudflare.F(r.resolvePassword(data.Origin)),
+			Scheme:   cloudflare.F(hyperdrive.HyperdriveOriginPublicDatabaseScheme(data.Origin.Scheme.ValueString())),
+		}
 	}
 
-	if !data.Origin.AccessClientID.IsNull() && !data.Origin.AccessClientID.IsUnknown() {
-		apiReq.Origin.AccessClientID = data.Origin.AccessClientID.ValueString()
-		apiReq.Origin.AccessClientSecret = r.resolveAccessClientSecret(data.Origin)
+	params := hyperdrive.HyperdriveParam{
+		Name:   cloudflare.F(data.Name.ValueString()),
+		Origin: cloudflare.F(origin),
 	}
 
 	if data.Caching != nil {
-		caching := &apiCaching{}
+		cachingParam := hyperdrive.HyperdriveCachingHyperdriveHyperdriveCachingEnabledParam{}
 		if !data.Caching.Disabled.IsNull() && !data.Caching.Disabled.IsUnknown() {
-			v := data.Caching.Disabled.ValueBool()
-			caching.Disabled = &v
+			cachingParam.Disabled = cloudflare.F(data.Caching.Disabled.ValueBool())
 		}
 		if !data.Caching.MaxAge.IsNull() && !data.Caching.MaxAge.IsUnknown() {
-			v := data.Caching.MaxAge.ValueInt64()
-			caching.MaxAge = &v
+			cachingParam.MaxAge = cloudflare.F(data.Caching.MaxAge.ValueInt64())
 		}
 		if !data.Caching.StaleWhileRevalidate.IsNull() && !data.Caching.StaleWhileRevalidate.IsUnknown() {
-			v := data.Caching.StaleWhileRevalidate.ValueInt64()
-			caching.StaleWhileRevalidate = &v
+			cachingParam.StaleWhileRevalidate = cloudflare.F(data.Caching.StaleWhileRevalidate.ValueInt64())
 		}
-		apiReq.Caching = caching
+		params.Caching = cloudflare.F[hyperdrive.HyperdriveCachingUnionParam](cachingParam)
 	}
 
 	if data.MTLS != nil {
-		mtls := &apiMTLS{}
+		mtlsParam := hyperdrive.HyperdriveMTLSParam{}
 		if !data.MTLS.CACertificateID.IsNull() && !data.MTLS.CACertificateID.IsUnknown() {
-			mtls.CACertificateID = data.MTLS.CACertificateID.ValueString()
+			mtlsParam.CACertificateID = cloudflare.F(data.MTLS.CACertificateID.ValueString())
 		}
 		if !data.MTLS.MTLSCertificateID.IsNull() && !data.MTLS.MTLSCertificateID.IsUnknown() {
-			mtls.MTLSCertificateID = data.MTLS.MTLSCertificateID.ValueString()
+			mtlsParam.MTLSCertificateID = cloudflare.F(data.MTLS.MTLSCertificateID.ValueString())
 		}
 		if !data.MTLS.SSLMode.IsNull() && !data.MTLS.SSLMode.IsUnknown() {
-			mtls.SSLMode = data.MTLS.SSLMode.ValueString()
+			mtlsParam.Sslmode = cloudflare.F(data.MTLS.SSLMode.ValueString())
 		}
-		apiReq.MTLS = mtls
+		params.MTLS = cloudflare.F(mtlsParam)
 	}
 
 	if !data.OriginConnectionLimit.IsNull() && !data.OriginConnectionLimit.IsUnknown() {
-		v := data.OriginConnectionLimit.ValueInt64()
-		apiReq.OriginConnectionLimit = &v
+		params.OriginConnectionLimit = cloudflare.F(data.OriginConnectionLimit.ValueInt64())
 	}
 
-	return apiReq
+	return params
 }
 
 func (r *configResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -330,10 +337,12 @@ func (r *configResource) Create(ctx context.Context, req resource.CreateRequest,
 		return
 	}
 
-	apiReq := r.buildAPIRequest(&data)
+	params := hyperdrive.ConfigNewParams{
+		AccountID:  cloudflare.F(r.client.AccountID),
+		Hyperdrive: r.buildSDKParams(&data),
+	}
 
-	apiPath := fmt.Sprintf("/accounts/%s/hyperdrive/configs", r.client.AccountID)
-	result, err := shared.DoRequest[apiResponse](ctx, r.client, http.MethodPost, apiPath, apiReq)
+	result, err := r.client.Client.Hyperdrive.Configs.New(ctx, params)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to create Hyperdrive config", err.Error())
 		return
@@ -350,8 +359,9 @@ func (r *configResource) Read(ctx context.Context, req resource.ReadRequest, res
 		return
 	}
 
-	apiPath := fmt.Sprintf("/accounts/%s/hyperdrive/configs/%s", r.client.AccountID, data.ID.ValueString())
-	result, err := shared.DoRequest[apiResponse](ctx, r.client, http.MethodGet, apiPath, nil)
+	result, err := r.client.Client.Hyperdrive.Configs.Get(ctx, data.ID.ValueString(), hyperdrive.ConfigGetParams{
+		AccountID: cloudflare.F(r.client.AccountID),
+	})
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to read Hyperdrive config", err.Error())
 		return
@@ -368,10 +378,12 @@ func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest,
 		return
 	}
 
-	apiReq := r.buildAPIRequest(&data)
+	params := hyperdrive.ConfigUpdateParams{
+		AccountID:  cloudflare.F(r.client.AccountID),
+		Hyperdrive: r.buildSDKParams(&data),
+	}
 
-	apiPath := fmt.Sprintf("/accounts/%s/hyperdrive/configs/%s", r.client.AccountID, data.ID.ValueString())
-	result, err := shared.DoRequest[apiResponse](ctx, r.client, http.MethodPut, apiPath, apiReq)
+	result, err := r.client.Client.Hyperdrive.Configs.Update(ctx, data.ID.ValueString(), params)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to update Hyperdrive config", err.Error())
 		return
@@ -388,8 +400,10 @@ func (r *configResource) Delete(ctx context.Context, req resource.DeleteRequest,
 		return
 	}
 
-	apiPath := fmt.Sprintf("/accounts/%s/hyperdrive/configs/%s", r.client.AccountID, data.ID.ValueString())
-	if err := shared.DoRequestNoBody(ctx, r.client, apiPath); err != nil {
+	_, err := r.client.Client.Hyperdrive.Configs.Delete(ctx, data.ID.ValueString(), hyperdrive.ConfigDeleteParams{
+		AccountID: cloudflare.F(r.client.AccountID),
+	})
+	if err != nil {
 		resp.Diagnostics.AddError("Failed to delete Hyperdrive config", err.Error())
 		return
 	}
@@ -399,7 +413,7 @@ func (r *configResource) ImportState(ctx context.Context, req resource.ImportSta
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
-func (r *configResource) mapResponseToModel(result *apiResponse, data *configModel) {
+func (r *configResource) mapResponseToModel(result *hyperdrive.Hyperdrive, data *configModel) {
 	data.ID = types.StringValue(result.ID)
 	data.Name = types.StringValue(result.Name)
 
@@ -410,7 +424,7 @@ func (r *configResource) mapResponseToModel(result *apiResponse, data *configMod
 	data.Origin.Port = types.Int64Value(result.Origin.Port)
 	data.Origin.Database = types.StringValue(result.Origin.Database)
 	data.Origin.User = types.StringValue(result.Origin.User)
-	data.Origin.Scheme = types.StringValue(result.Origin.Scheme)
+	data.Origin.Scheme = types.StringValue(string(result.Origin.Scheme))
 	if result.Origin.AccessClientID != "" {
 		data.Origin.AccessClientID = types.StringValue(result.Origin.AccessClientID)
 	}
@@ -421,7 +435,7 @@ func (r *configResource) mapResponseToModel(result *apiResponse, data *configMod
 		data.Caching.StaleWhileRevalidate = types.Int64Value(result.Caching.StaleWhileRevalidate)
 	}
 
-	if result.MTLS != nil {
+	if result.MTLS.CACertificateID != "" || result.MTLS.MTLSCertificateID != "" || result.MTLS.Sslmode != "" {
 		if data.MTLS == nil {
 			data.MTLS = &mtlsModel{}
 		}
@@ -431,8 +445,8 @@ func (r *configResource) mapResponseToModel(result *apiResponse, data *configMod
 		if result.MTLS.MTLSCertificateID != "" {
 			data.MTLS.MTLSCertificateID = types.StringValue(result.MTLS.MTLSCertificateID)
 		}
-		if result.MTLS.SSLMode != "" {
-			data.MTLS.SSLMode = types.StringValue(result.MTLS.SSLMode)
+		if result.MTLS.Sslmode != "" {
+			data.MTLS.SSLMode = types.StringValue(result.MTLS.Sslmode)
 		}
 	}
 

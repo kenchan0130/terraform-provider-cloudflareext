@@ -3,8 +3,10 @@ package store
 import (
 	"context"
 	"fmt"
-	"net/http"
+	"time"
 
+	cloudflare "github.com/cloudflare/cloudflare-go/v4"
+	"github.com/cloudflare/cloudflare-go/v4/secrets_store"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -81,27 +83,36 @@ func (r *storeResource) Create(ctx context.Context, req resource.CreateRequest, 
 		return
 	}
 
-	apiReq := []apiCreateRequest{
-		{Name: data.Name.ValueString()},
+	params := secrets_store.StoreNewParams{
+		AccountID: cloudflare.F(r.client.AccountID),
+		Body: []secrets_store.StoreNewParamsBody{
+			{
+				Name: cloudflare.F(data.Name.ValueString()),
+			},
+		},
 	}
 
-	apiPath := fmt.Sprintf("/accounts/%s/secrets_store/stores", r.client.AccountID)
-	result, err := shared.DoRequest[[]apiResponse](ctx, r.client, http.MethodPost, apiPath, apiReq)
-	if err != nil {
+	iter := r.client.Client.SecretsStore.Stores.NewAutoPaging(ctx, params)
+	var store *secrets_store.StoreNewResponse
+	for iter.Next() {
+		item := iter.Current()
+		store = &item
+		break
+	}
+	if err := iter.Err(); err != nil {
 		resp.Diagnostics.AddError("Failed to create Secrets Store", err.Error())
 		return
 	}
 
-	if len(*result) == 0 {
+	if store == nil {
 		resp.Diagnostics.AddError("Failed to create Secrets Store", "API returned empty result")
 		return
 	}
 
-	store := (*result)[0]
 	data.ID = types.StringValue(store.ID)
 	data.Name = types.StringValue(store.Name)
-	data.Created = types.StringValue(store.Created)
-	data.Modified = types.StringValue(store.Modified)
+	data.Created = types.StringValue(store.Created.Format(time.RFC3339Nano))
+	data.Modified = types.StringValue(store.Modified.Format(time.RFC3339Nano))
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -125,8 +136,8 @@ func (r *storeResource) Read(ctx context.Context, req resource.ReadRequest, resp
 
 	data.ID = types.StringValue(store.ID)
 	data.Name = types.StringValue(store.Name)
-	data.Created = types.StringValue(store.Created)
-	data.Modified = types.StringValue(store.Modified)
+	data.Created = types.StringValue(store.Created.Format(time.RFC3339Nano))
+	data.Modified = types.StringValue(store.Modified.Format(time.RFC3339Nano))
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -145,8 +156,10 @@ func (r *storeResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 		return
 	}
 
-	apiPath := fmt.Sprintf("/accounts/%s/secrets_store/stores/%s", r.client.AccountID, data.ID.ValueString())
-	if err := shared.DoRequestNoBody(ctx, r.client, apiPath); err != nil {
+	_, err := r.client.Client.SecretsStore.Stores.Delete(ctx, data.ID.ValueString(), secrets_store.StoreDeleteParams{
+		AccountID: cloudflare.F(r.client.AccountID),
+	})
+	if err != nil {
 		resp.Diagnostics.AddError("Failed to delete Secrets Store", err.Error())
 		return
 	}
@@ -166,24 +179,25 @@ func (r *storeResource) ImportState(ctx context.Context, req resource.ImportStat
 	data := model{
 		ID:       types.StringValue(store.ID),
 		Name:     types.StringValue(store.Name),
-		Created:  types.StringValue(store.Created),
-		Modified: types.StringValue(store.Modified),
+		Created:  types.StringValue(store.Created.Format(time.RFC3339Nano)),
+		Modified: types.StringValue(store.Modified.Format(time.RFC3339Nano)),
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func (r *storeResource) findStoreByID(ctx context.Context, id string) (*apiResponse, error) {
-	apiPath := fmt.Sprintf("/accounts/%s/secrets_store/stores", r.client.AccountID)
-	result, err := shared.DoRequest[[]apiResponse](ctx, r.client, http.MethodGet, apiPath, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, store := range *result {
+func (r *storeResource) findStoreByID(ctx context.Context, id string) (*secrets_store.StoreListResponse, error) {
+	iter := r.client.Client.SecretsStore.Stores.ListAutoPaging(ctx, secrets_store.StoreListParams{
+		AccountID: cloudflare.F(r.client.AccountID),
+	})
+	for iter.Next() {
+		store := iter.Current()
 		if store.ID == id {
 			return &store, nil
 		}
+	}
+	if err := iter.Err(); err != nil {
+		return nil, fmt.Errorf("failed to list stores: %w", err)
 	}
 
 	return nil, nil
