@@ -14,16 +14,18 @@ type configModel struct {
 
 // originModel represents the origin (database connection) configuration.
 type originModel struct {
-	Host                 types.String `tfsdk:"host"`
-	Port                 types.Int64  `tfsdk:"port"`
-	Database             types.String `tfsdk:"database"`
-	User                 types.String `tfsdk:"user"`
-	Password             types.String `tfsdk:"password"`
-	PasswordWO           types.String `tfsdk:"password_wo"`
-	Scheme               types.String `tfsdk:"scheme"`
-	AccessClientID       types.String `tfsdk:"access_client_id"`
-	AccessClientSecret   types.String `tfsdk:"access_client_secret"`
-	AccessClientSecretWO types.String `tfsdk:"access_client_secret_wo"`
+	Host                        types.String `tfsdk:"host"`
+	Port                        types.Int64  `tfsdk:"port"`
+	Database                    types.String `tfsdk:"database"`
+	User                        types.String `tfsdk:"user"`
+	Password                    types.String `tfsdk:"password"`
+	PasswordWO                  types.String `tfsdk:"password_wo"`
+	PasswordWOVersion           types.String `tfsdk:"password_wo_version"`
+	Scheme                      types.String `tfsdk:"scheme"`
+	AccessClientID              types.String `tfsdk:"access_client_id"`
+	AccessClientSecret          types.String `tfsdk:"access_client_secret"`
+	AccessClientSecretWO        types.String `tfsdk:"access_client_secret_wo"`
+	AccessClientSecretWOVersion types.String `tfsdk:"access_client_secret_wo_version"`
 }
 
 // cachingModel represents the caching configuration.
