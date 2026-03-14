@@ -197,7 +197,7 @@ func (r *storeResource) findStoreByID(ctx context.Context, id string) (*secrets_
 		}
 	}
 	if err := iter.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to list stores: %w", err)
 	}
 
 	return nil, nil

@@ -268,18 +268,31 @@ func (r *configResource) resolveAccessClientSecret(origin *originModel) string {
 }
 
 func (r *configResource) buildSDKParams(data *configModel) hyperdrive.HyperdriveParam {
-	originParam := hyperdrive.HyperdriveOriginPublicDatabaseParam{
-		Host:     cloudflare.F(data.Origin.Host.ValueString()),
-		Port:     cloudflare.F(data.Origin.Port.ValueInt64()),
-		Database: cloudflare.F(data.Origin.Database.ValueString()),
-		User:     cloudflare.F(data.Origin.User.ValueString()),
-		Password: cloudflare.F(r.resolvePassword(data.Origin)),
-		Scheme:   cloudflare.F(hyperdrive.HyperdriveOriginPublicDatabaseScheme(data.Origin.Scheme.ValueString())),
+	var origin hyperdrive.HyperdriveOriginUnionParam
+	if !data.Origin.AccessClientID.IsNull() && !data.Origin.AccessClientID.IsUnknown() {
+		origin = hyperdrive.HyperdriveOriginAccessProtectedDatabaseBehindCloudflareTunnelParam{
+			Host:               cloudflare.F(data.Origin.Host.ValueString()),
+			Database:           cloudflare.F(data.Origin.Database.ValueString()),
+			User:               cloudflare.F(data.Origin.User.ValueString()),
+			Password:           cloudflare.F(r.resolvePassword(data.Origin)),
+			Scheme:             cloudflare.F(hyperdrive.HyperdriveOriginAccessProtectedDatabaseBehindCloudflareTunnelScheme(data.Origin.Scheme.ValueString())),
+			AccessClientID:     cloudflare.F(data.Origin.AccessClientID.ValueString()),
+			AccessClientSecret: cloudflare.F(r.resolveAccessClientSecret(data.Origin)),
+		}
+	} else {
+		origin = hyperdrive.HyperdriveOriginPublicDatabaseParam{
+			Host:     cloudflare.F(data.Origin.Host.ValueString()),
+			Port:     cloudflare.F(data.Origin.Port.ValueInt64()),
+			Database: cloudflare.F(data.Origin.Database.ValueString()),
+			User:     cloudflare.F(data.Origin.User.ValueString()),
+			Password: cloudflare.F(r.resolvePassword(data.Origin)),
+			Scheme:   cloudflare.F(hyperdrive.HyperdriveOriginPublicDatabaseScheme(data.Origin.Scheme.ValueString())),
+		}
 	}
 
 	params := hyperdrive.HyperdriveParam{
 		Name:   cloudflare.F(data.Name.ValueString()),
-		Origin: cloudflare.F[hyperdrive.HyperdriveOriginUnionParam](originParam),
+		Origin: cloudflare.F(origin),
 	}
 
 	if data.Caching != nil {
