@@ -148,7 +148,8 @@ resource "cloudflareext_hyperdrive_config" "test" {
     host     = "db.example.com"
     database = "mydb"
     user     = "dbuser"
-    password_wo = "dbpass"
+    password_wo         = "dbpass"
+    password_wo_version = 1
   }
 }
 `),
@@ -185,7 +186,8 @@ resource "cloudflareext_hyperdrive_config" "test" {
     host     = "db.example.com"
     database = "mydb"
     user     = "dbuser"
-    password_wo = "dbpass"
+    password_wo         = "dbpass"
+    password_wo_version = 1
   }
 }
 `),
@@ -217,7 +219,8 @@ resource "cloudflareext_hyperdrive_config" "test" {
     host     = "db.example.com"
     database = "mydb"
     user     = "dbuser"
-    password_wo = "dbpass"
+    password_wo         = "dbpass"
+    password_wo_version = 1
   }
 }
 `),
@@ -287,7 +290,8 @@ resource "cloudflareext_hyperdrive_config" "test" {
     host     = "db.example.com"
     database = "mydb"
     user     = "dbuser"
-    password_wo = "dbpass"
+    password_wo         = "dbpass"
+    password_wo_version = 1
   }
 }
 `),
@@ -297,7 +301,7 @@ resource "cloudflareext_hyperdrive_config" "test" {
 				ImportState:                          true,
 				ImportStateVerify:                    true,
 				ImportStateVerifyIdentifierAttribute: "id",
-				ImportStateVerifyIgnore:              []string{"origin.password", "origin.password_wo"},
+				ImportStateVerifyIgnore:              []string{"origin.password", "origin.password_wo", "origin.password_wo_version"},
 			},
 		},
 	})
@@ -358,7 +362,8 @@ resource "cloudflareext_hyperdrive_config" "test" {
     port     = 3306
     database = "mydb"
     user     = "dbuser"
-    password_wo = "dbpass"
+    password_wo         = "dbpass"
+    password_wo_version = 1
     scheme   = "mysql"
   }
 }
@@ -389,7 +394,8 @@ resource "cloudflareext_hyperdrive_config" "test" {
     host     = "db.example.com"
     database = "mydb"
     user     = "dbuser"
-    password_wo = "dbpass"
+    password_wo         = "dbpass"
+    password_wo_version = 1
   }
   caching = {
     disabled               = false
@@ -433,7 +439,8 @@ resource "cloudflareext_hyperdrive_config" "test" {
     host     = "db.example.com"
     database = "mydb"
     user     = "dbuser"
-    password_wo = "dbpass"
+    password_wo         = "dbpass"
+    password_wo_version = 1
   }
 }
 `),

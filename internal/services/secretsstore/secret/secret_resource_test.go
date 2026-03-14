@@ -140,11 +140,12 @@ func TestUnitSecretsStoreSecret_Create(t *testing.T) {
 			{
 				Config: testutil.TestConfig(`
 resource "cloudflareext_secrets_store_secret" "test" {
-  store_id = "store-001"
-  name     = "MY_SECRET"
-  value_wo = "super-secret-value"
-  comment  = "test secret"
-  scopes   = ["workers"]
+  store_id         = "store-001"
+  name             = "MY_SECRET"
+  value_wo         = "super-secret-value"
+  value_wo_version = 1
+  comment          = "test secret"
+  scopes           = ["workers"]
 }
 `),
 				Check: resource.ComposeAggregateTestCheckFunc(
@@ -153,6 +154,7 @@ resource "cloudflareext_secrets_store_secret" "test" {
 					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "store_id", "store-001"),
 					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "status", "active"),
 					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "comment", "test secret"),
+					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "value_wo_version", "1"),
 				),
 			},
 		},
@@ -173,11 +175,12 @@ func TestUnitSecretsStoreSecret_Update(t *testing.T) {
 			{
 				Config: testutil.TestConfig(`
 resource "cloudflareext_secrets_store_secret" "test" {
-  store_id = "store-001"
-  name     = "MY_SECRET"
-  value_wo = "super-secret-value"
-  comment  = "test secret"
-  scopes   = ["workers"]
+  store_id         = "store-001"
+  name             = "MY_SECRET"
+  value_wo         = "super-secret-value"
+  value_wo_version = 1
+  comment          = "test secret"
+  scopes           = ["workers"]
 }
 `),
 				Check: testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "comment", "test secret"),
@@ -205,14 +208,18 @@ resource "cloudflareext_secrets_store_secret" "test" {
 				},
 				Config: testutil.TestConfig(`
 resource "cloudflareext_secrets_store_secret" "test" {
-  store_id = "store-001"
-  name     = "MY_SECRET"
-  value_wo = "new-secret-value"
-  comment  = "updated comment"
-  scopes   = ["workers"]
+  store_id         = "store-001"
+  name             = "MY_SECRET"
+  value_wo         = "new-secret-value"
+  value_wo_version = 2
+  comment          = "updated comment"
+  scopes           = ["workers"]
 }
 `),
-				Check: testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "comment", "updated comment"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "comment", "updated comment"),
+					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "value_wo_version", "2"),
+				),
 			},
 		},
 	})
@@ -253,9 +260,10 @@ func TestUnitSecretsStoreSecret_MultipleScopes(t *testing.T) {
 resource "cloudflareext_secrets_store_secret" "test" {
   store_id = "store-001"
   name     = "MY_SECRET"
-  value_wo = "super-secret-value"
-  comment  = "test secret"
-  scopes   = ["workers", "ai_gateway"]
+  value_wo         = "super-secret-value"
+  value_wo_version = 1
+  comment          = "test secret"
+  scopes           = ["workers", "ai_gateway"]
 }
 `),
 				Check: resource.ComposeAggregateTestCheckFunc(
@@ -290,8 +298,9 @@ func TestUnitSecretsStoreSecret_APIError(t *testing.T) {
 resource "cloudflareext_secrets_store_secret" "test" {
   store_id = "store-001"
   name     = "MY_SECRET"
-  value_wo = "super-secret-value"
-  scopes   = ["workers"]
+  value_wo         = "super-secret-value"
+  value_wo_version = 1
+  scopes           = ["workers"]
 }
 `),
 				ExpectError: regexp.MustCompile(`Authentication error`),

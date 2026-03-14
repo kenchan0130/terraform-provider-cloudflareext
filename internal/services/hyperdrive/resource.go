@@ -111,6 +111,13 @@ func originSchemaAttribute() schema.Attribute {
 					),
 				},
 			},
+			"password_wo_version": schema.Int64Attribute{
+				Description: "A version number that should be incremented each time `password_wo` changes. " +
+					"Since `password_wo` is write-only and not stored in state, " +
+					"Terraform cannot detect when it changes. " +
+					"Incrementing this value triggers an update.",
+				Optional: true,
+			},
 			"scheme": schema.StringAttribute{
 				Description: "The connection scheme. Valid values: `postgresql`, `postgres`, `mysql`. " +
 					"Defaults to `\"postgresql\"`.",
@@ -149,6 +156,13 @@ func originSchemaAttribute() schema.Attribute {
 						path.MatchRoot("origin").AtName("access_client_secret"),
 					),
 				},
+			},
+			"access_client_secret_wo_version": schema.Int64Attribute{
+				Description: "A version number that should be incremented each time `access_client_secret_wo` changes. " +
+					"Since `access_client_secret_wo` is write-only and not stored in state, " +
+					"Terraform cannot detect when it changes. " +
+					"Incrementing this value triggers an update.",
+				Optional: true,
 			},
 		},
 	}

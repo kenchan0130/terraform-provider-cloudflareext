@@ -62,4 +62,4 @@ make install    # Install provider locally for testing
 - GitHub Actions pinned to commit SHAs with `# vX.Y.Z` comments
 - DCO sign-off required for contributions (`git commit -s`). All commits must have a `Signed-off-by` line — the DCO bot will reject PRs with unsigned commits
 - License: Apache 2.0
-- Before creating a pull request, always run `make fmt`, `go generate ./...`, and `make test` to ensure no formatting, generation, or test failures
+- Before creating a pull request, always run `make fmt`, `go generate ./...`, `make generate`, and `make test` to ensure no formatting, code generation, documentation generation, or test failures
