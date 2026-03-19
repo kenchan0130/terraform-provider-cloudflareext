@@ -136,12 +136,24 @@ func (r *secretResource) resolveValue(data *model) string {
 	return data.Value.ValueString()
 }
 
+func (r *secretResource) applyWriteOnlyAttributes(data, config *model) {
+	data.ValueWO = config.ValueWO
+}
+
 func (r *secretResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data model
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
+	// Write-only attributes are not available in the plan; read them from the config.
+	var config model
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	r.applyWriteOnlyAttributes(&data, &config)
 
 	var scopes []string
 	resp.Diagnostics.Append(data.Scopes.ElementsAs(ctx, &scopes, false)...)
@@ -228,6 +240,14 @@ func (r *secretResource) Update(ctx context.Context, req resource.UpdateRequest,
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
+	// Write-only attributes are not available in the plan; read them from the config.
+	var config model
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	r.applyWriteOnlyAttributes(&data, &config)
 
 	var scopes []string
 	resp.Diagnostics.Append(data.Scopes.ElementsAs(ctx, &scopes, false)...)

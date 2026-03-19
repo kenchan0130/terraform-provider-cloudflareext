@@ -76,6 +76,14 @@ func setupHyperdriveMock() {
 			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 				return httpmock.NewStringResponse(400, `{"success":false,"errors":[{"code":400,"message":"invalid request"}]}`), nil
 			}
+			if body.Origin.Password == "" {
+				return httpmock.NewJsonResponse(400, shared.CloudflareResponse[any]{
+					Success: false,
+					Errors: []shared.CloudflareError{
+						{Code: 2007, Message: "Invalid Hyperdrive config: origin: (password: cannot be blank.)."},
+					},
+				})
+			}
 			resp := shared.CloudflareResponse[apiHyperdriveResponse]{
 				Success: true,
 				Result: newHyperdriveResponse("hd-test-id-001", body.Name, apiHyperdriveOriginResponse{

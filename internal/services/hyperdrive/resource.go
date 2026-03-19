@@ -250,6 +250,13 @@ func (r *configResource) Configure(_ context.Context, req resource.ConfigureRequ
 	r.client = client
 }
 
+func (r *configResource) applyWriteOnlyAttributes(data, config *configModel) {
+	if config.Origin != nil && data.Origin != nil {
+		data.Origin.PasswordWO = config.Origin.PasswordWO
+		data.Origin.AccessClientSecretWO = config.Origin.AccessClientSecretWO
+	}
+}
+
 func (r *configResource) resolvePassword(origin *originModel) string {
 	if !origin.PasswordWO.IsNull() && !origin.PasswordWO.IsUnknown() {
 		return origin.PasswordWO.ValueString()
@@ -337,6 +344,14 @@ func (r *configResource) Create(ctx context.Context, req resource.CreateRequest,
 		return
 	}
 
+	// Write-only attributes are not available in the plan; read them from the config.
+	var config configModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	r.applyWriteOnlyAttributes(&data, &config)
+
 	params := hyperdrive.ConfigNewParams{
 		AccountID:  cloudflare.F(r.client.AccountID),
 		Hyperdrive: r.buildSDKParams(&data),
@@ -377,6 +392,14 @@ func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest,
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
+	// Write-only attributes are not available in the plan; read them from the config.
+	var config configModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	r.applyWriteOnlyAttributes(&data, &config)
 
 	params := hyperdrive.ConfigUpdateParams{
 		AccountID:  cloudflare.F(r.client.AccountID),
