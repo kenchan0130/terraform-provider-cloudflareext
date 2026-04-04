@@ -30,6 +30,10 @@ testacc:
 generate:
 	go generate ./...
 
+.PHONY: generate/docs
+generate/docs:
+	go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs generate --provider-name ${NAME}
+
 .PHONY: fmt
 fmt:
 	go fmt ./...

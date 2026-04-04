@@ -49,11 +49,11 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - run: make generate
+      - run: make generate/docs
       - name: Verify no changes to generated docs
         run: |
           git diff --compact-summary --exit-code -- docs/ || \
-            (echo "::error::Generated docs are out of date. Run 'make generate' and commit the changes." && exit 1)
+            (echo "::error::Generated docs are out of date. Run 'make generate/docs' and commit the changes." && exit 1)
 
   golangci-lint:
     name: golangci-lint
