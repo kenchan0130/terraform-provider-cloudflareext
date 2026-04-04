@@ -40,7 +40,7 @@ resource "cloudflareext_workers_script_secret" "example" {
 
 - `text` (String, Sensitive) The secret value (legacy). On Terraform 1.11+, use `text_wo` instead to prevent the value from being stored in state. Exactly one of `text` or `text_wo` must be set.
 - `text_wo` (String, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) The secret value (write-only). This value is never stored in Terraform state. Requires Terraform 1.11 or later. Exactly one of `text` or `text_wo` must be set.
-- `text_wo_version` (String) A version number that should be incremented each time `text_wo` changes. Since `text_wo` is write-only and not stored in state, Terraform cannot detect when it changes. Incrementing this value triggers an update.
+- `text_wo_version` (String) A version number that should be incremented each time `text_wo` changes. Since `text_wo` is write-only and not stored in state, Terraform cannot detect when it changes. Incrementing this value triggers an update. Required when `text_wo` is set.
 
 ### Read-Only
 
