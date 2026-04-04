@@ -13,20 +13,30 @@ Manages a Cloudflare Hyperdrive configuration. Compatible with the official `clo
 ## Example Usage
 
 ```terraform
+variable "db_password" {
+  type      = string
+  ephemeral = true
+}
+
 resource "cloudflareext_hyperdrive_config" "example" {
   name = "my-hyperdrive"
   origin = {
-    host        = "db.example.com"
-    port        = 5432
-    database    = "mydb"
-    user        = "dbuser"
-    password_wo = var.db_password
-    scheme      = "postgresql"
+    host                = "db.example.com"
+    port                = 5432
+    database            = "mydb"
+    user                = "dbuser"
+    password_wo         = var.db_password
+    password_wo_version = "1"
+    scheme              = "postgresql"
   }
   caching = {
     disabled               = false
     max_age                = 60
     stale_while_revalidate = 15
+  }
+
+  lifecycle {
+    ignore_changes = [origin.password]
   }
 }
 ```
@@ -63,8 +73,10 @@ Optional:
 - `access_client_id` (String) The Client ID of the Access token to use when connecting to the origin database.
 - `access_client_secret` (String, Sensitive) The Client Secret of the Access token (legacy). On Terraform 1.11+, use `access_client_secret_wo` instead. At most one of `access_client_secret` or `access_client_secret_wo` may be set.
 - `access_client_secret_wo` (String, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) The Client Secret of the Access token (write-only). This value is never stored in Terraform state. Requires Terraform 1.11 or later. At most one of `access_client_secret` or `access_client_secret_wo` may be set.
+- `access_client_secret_wo_version` (String) A version number that should be incremented each time `access_client_secret_wo` changes. Since `access_client_secret_wo` is write-only and not stored in state, Terraform cannot detect when it changes. Incrementing this value triggers an update.
 - `password` (String, Sensitive) The database password (legacy). On Terraform 1.11+, use `password_wo` instead to prevent the password from being stored in state. Exactly one of `password` or `password_wo` must be set.
 - `password_wo` (String, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) The database password (write-only). This value is never stored in Terraform state. Requires Terraform 1.11 or later. Exactly one of `password` or `password_wo` must be set.
+- `password_wo_version` (String) A version number that should be incremented each time `password_wo` changes. Since `password_wo` is write-only and not stored in state, Terraform cannot detect when it changes. Incrementing this value triggers an update.
 - `port` (Number) The port number of the database server. Defaults to `5432`.
 - `scheme` (String) The connection scheme. Valid values: `postgresql`, `postgres`, `mysql`. Defaults to `"postgresql"`.
 

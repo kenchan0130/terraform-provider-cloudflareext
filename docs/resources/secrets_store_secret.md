@@ -3,22 +3,32 @@
 page_title: "cloudflareext_secrets_store_secret Resource - cloudflareext"
 subcategory: ""
 description: |-
-  Manages a Cloudflare Secrets Store secret. The secret value is never stored in Terraform state when using value_wo.
+  Manages a Cloudflare Secrets Store secret. Supports write-only attributes to prevent secrets from being stored in Terraform state.
 ---
 
 # cloudflareext_secrets_store_secret (Resource)
 
-Manages a Cloudflare Secrets Store secret. The secret value is never stored in Terraform state when using `value_wo`.
+Manages a Cloudflare Secrets Store secret. Supports write-only attributes to prevent secrets from being stored in Terraform state.
 
 ## Example Usage
 
 ```terraform
+variable "secret_value" {
+  type      = string
+  ephemeral = true
+}
+
+resource "cloudflareext_secrets_store" "example" {
+  name = "my-secret-store"
+}
+
 resource "cloudflareext_secrets_store_secret" "example" {
-  store_id = cloudflareext_secrets_store.example.id
-  name     = "MY_SECRET"
-  value_wo = var.secret_value
-  comment  = "Managed by Terraform"
-  scopes   = ["workers"]
+  store_id         = cloudflareext_secrets_store.example.id
+  name             = "MY_SECRET"
+  value_wo         = var.secret_value
+  value_wo_version = "1"
+  comment          = "Managed by Terraform"
+  scopes           = ["workers"]
 }
 ```
 
@@ -38,6 +48,7 @@ resource "cloudflareext_secrets_store_secret" "example" {
 - `comment` (String) A comment for the secret.
 - `value` (String, Sensitive) The secret value (legacy). On Terraform 1.11+, use `value_wo` instead to prevent the value from being stored in state. Exactly one of `value` or `value_wo` must be set.
 - `value_wo` (String, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) The secret value (write-only). This value is never stored in Terraform state. Requires Terraform 1.11 or later. Exactly one of `value` or `value_wo` must be set.
+- `value_wo_version` (String) A version number that should be incremented each time `value_wo` changes. Since `value_wo` is write-only and not stored in state, Terraform cannot detect when it changes. Incrementing this value triggers an update.
 
 ### Read-Only
 
