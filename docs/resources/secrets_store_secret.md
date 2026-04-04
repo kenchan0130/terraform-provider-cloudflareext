@@ -48,7 +48,7 @@ resource "cloudflareext_secrets_store_secret" "example" {
 - `comment` (String) A comment for the secret.
 - `value` (String, Sensitive) The secret value (legacy). On Terraform 1.11+, use `value_wo` instead to prevent the value from being stored in state. Exactly one of `value` or `value_wo` must be set.
 - `value_wo` (String, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) The secret value (write-only). This value is never stored in Terraform state. Requires Terraform 1.11 or later. Exactly one of `value` or `value_wo` must be set.
-- `value_wo_version` (String) A version number that should be incremented each time `value_wo` changes. Since `value_wo` is write-only and not stored in state, Terraform cannot detect when it changes. Incrementing this value triggers an update.
+- `value_wo_version` (String) A version number that should be incremented each time `value_wo` changes. Since `value_wo` is write-only and not stored in state, Terraform cannot detect when it changes. Incrementing this value triggers an update. Required when `value_wo` is set.
 
 ### Read-Only
 
