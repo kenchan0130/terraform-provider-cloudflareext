@@ -7,6 +7,8 @@ on:
       - go.mod
       - go.sum
       - .golangci.yml
+      - "examples/**"
+      - "templates/**"
 
 concurrency:
   group: ci-${{ github.head_ref || github.ref }}
@@ -33,8 +35,8 @@ jobs:
       - run: go mod download
       - run: go build -v ./...
 
-  generate:
-    name: Generate
+  docs:
+    name: Check to generate documents
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -47,11 +49,11 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - run: go generate ./...
+      - run: make generate
       - name: Verify no changes to generated docs
         run: |
-          git diff --compact-summary --exit-code || \
-            (echo "::error::Generated docs are out of date. Run 'go generate ./...' and commit the changes." && exit 1)
+          git diff --compact-summary --exit-code -- docs/ || \
+            (echo "::error::Generated docs are out of date. Run 'make generate' and commit the changes." && exit 1)
 
   golangci-lint:
     name: golangci-lint
@@ -94,7 +96,7 @@ jobs:
     if: always()
     needs:
       - build
-      - generate
+      - docs
       - golangci-lint
       - unit
     runs-on: ubuntu-latest
@@ -106,7 +108,7 @@ jobs:
         run: |
           results=(
             "${{ needs.build.result }}"
-            "${{ needs.generate.result }}"
+            "${{ needs.docs.result }}"
             "${{ needs.golangci-lint.result }}"
             "${{ needs.unit.result }}"
           )
