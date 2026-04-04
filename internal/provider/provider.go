@@ -16,6 +16,7 @@ import (
 	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/hyperdrive"
 	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/secretsstore/secret"
 	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/secretsstore/store"
+	workerssecret "github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/workers/secret"
 )
 
 var _ provider.Provider = &CloudflareExtProvider{}
@@ -138,6 +139,7 @@ func (p *CloudflareExtProvider) Resources(_ context.Context) []func() resource.R
 		hyperdrive.NewConfigResource,
 		store.NewStoreResource,
 		secret.NewSecretResource,
+		workerssecret.NewSecretResource,
 	}
 }
 
