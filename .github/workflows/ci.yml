@@ -7,6 +7,8 @@ on:
       - go.mod
       - go.sum
       - .golangci.yml
+      - "examples/**"
+      - "templates/**"
 
 concurrency:
   group: ci-${{ github.head_ref || github.ref }}
@@ -48,10 +50,15 @@ jobs:
           go-version-file: go.mod
           cache: true
       - run: go generate ./...
+      - name: Verify no changes to generated code
+        run: |
+          git diff --compact-summary --exit-code -- ':!docs/' || \
+            (echo "::error::Generated code is out of date. Run 'go generate ./...' and commit the changes." && exit 1)
+      - run: make generate
       - name: Verify no changes to generated docs
         run: |
-          git diff --compact-summary --exit-code || \
-            (echo "::error::Generated docs are out of date. Run 'go generate ./...' and commit the changes." && exit 1)
+          git diff --compact-summary --exit-code -- docs/ || \
+            (echo "::error::Generated docs are out of date. Run 'make generate' and commit the changes." && exit 1)
 
   golangci-lint:
     name: golangci-lint
