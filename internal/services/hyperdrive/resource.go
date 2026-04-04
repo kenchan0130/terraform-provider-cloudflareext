@@ -110,13 +110,17 @@ func originSchemaAttribute() schema.Attribute {
 					stringvalidator.ExactlyOneOf(
 						path.MatchRoot("origin").AtName("password"),
 					),
+					stringvalidator.AlsoRequires(
+						path.MatchRoot("origin").AtName("password_wo_version"),
+					),
 				},
 			},
 			"password_wo_version": schema.StringAttribute{
 				Description: "A version number that should be incremented each time `password_wo` changes. " +
 					"Since `password_wo` is write-only and not stored in state, " +
 					"Terraform cannot detect when it changes. " +
-					"Incrementing this value triggers an update.",
+					"Incrementing this value triggers an update. " +
+					"Required when `password_wo` is set.",
 				Optional: true,
 			},
 			"scheme": schema.StringAttribute{
@@ -156,13 +160,17 @@ func originSchemaAttribute() schema.Attribute {
 					stringvalidator.ConflictsWith(
 						path.MatchRoot("origin").AtName("access_client_secret"),
 					),
+					stringvalidator.AlsoRequires(
+						path.MatchRoot("origin").AtName("access_client_secret_wo_version"),
+					),
 				},
 			},
 			"access_client_secret_wo_version": schema.StringAttribute{
 				Description: "A version number that should be incremented each time `access_client_secret_wo` changes. " +
 					"Since `access_client_secret_wo` is write-only and not stored in state, " +
 					"Terraform cannot detect when it changes. " +
-					"Incrementing this value triggers an update.",
+					"Incrementing this value triggers an update. " +
+					"Required when `access_client_secret_wo` is set.",
 				Optional: true,
 			},
 		},

@@ -283,6 +283,58 @@ resource "cloudflareext_hyperdrive_config" "test" {
 	})
 }
 
+func TestUnitHyperdriveConfig_PasswordWORequiresVersion(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "my-hyperdrive"
+  origin = {
+    host        = "db.example.com"
+    database    = "mydb"
+    user        = "dbuser"
+    password_wo = "secret"
+  }
+}
+`),
+				ExpectError: regexp.MustCompile(`password_wo_version`),
+			},
+		},
+	})
+}
+
+func TestUnitHyperdriveConfig_AccessClientSecretWORequiresVersion(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	setupHyperdriveMock()
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "my-hyperdrive"
+  origin = {
+    host                   = "db.example.com"
+    database               = "mydb"
+    user                   = "dbuser"
+    password_wo            = "secret"
+    password_wo_version    = "1"
+    access_client_id       = "client-id"
+    access_client_secret_wo = "client-secret"
+  }
+}
+`),
+				ExpectError: regexp.MustCompile(`access_client_secret_wo_version`),
+			},
+		},
+	})
+}
+
 func TestUnitHyperdriveConfig_ImportState(t *testing.T) {
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()

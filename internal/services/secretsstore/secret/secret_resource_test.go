@@ -260,6 +260,25 @@ resource "cloudflareext_secrets_store_secret" "test" {
 	})
 }
 
+func TestUnitSecretsStoreSecret_ValueWORequiresVersion(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_secrets_store_secret" "test" {
+  store_id = "store-001"
+  name     = "MY_SECRET"
+  value_wo = "my-secret-value"
+  scopes   = ["workers"]
+}
+`),
+				ExpectError: regexp.MustCompile(`value_wo_version`),
+			},
+		},
+	})
+}
+
 func TestUnitSecretsStoreSecret_APIError(t *testing.T) {
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()
