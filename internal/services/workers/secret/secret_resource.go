@@ -79,13 +79,17 @@ func (r *secretResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 					stringvalidator.ExactlyOneOf(
 						path.MatchRoot("text"),
 					),
+					stringvalidator.AlsoRequires(
+						path.MatchRoot("text_wo_version"),
+					),
 				},
 			},
 			"text_wo_version": schema.StringAttribute{
 				Description: "A version number that should be incremented each time `text_wo` changes. " +
 					"Since `text_wo` is write-only and not stored in state, " +
 					"Terraform cannot detect when it changes. " +
-					"Incrementing this value triggers an update.",
+					"Incrementing this value triggers an update. " +
+					"Required when `text_wo` is set.",
 				Optional: true,
 			},
 			"type": schema.StringAttribute{

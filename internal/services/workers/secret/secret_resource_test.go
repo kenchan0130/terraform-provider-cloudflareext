@@ -163,6 +163,24 @@ resource "cloudflareext_workers_script_secret" "test" {
 	})
 }
 
+func TestUnitWorkersScriptSecret_TextWORequiresVersion(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_workers_script_secret" "test" {
+  script_name = "my-worker"
+  name        = "MY_SECRET"
+  text_wo     = "my-secret-value"
+}
+`),
+				ExpectError: regexp.MustCompile(`text_wo_version`),
+			},
+		},
+	})
+}
+
 func TestUnitWorkersScriptSecret_ScriptNameRequiresReplace(t *testing.T) {
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()
