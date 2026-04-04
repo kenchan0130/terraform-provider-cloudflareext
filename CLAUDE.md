@@ -36,7 +36,8 @@ make test       # Run unit tests (go vet + go test with race detector)
 make testacc    # Run acceptance tests (requires `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`)
 make lint       # Run golangci-lint
 make fmt        # Format code
-make generate   # Generate docs via tfplugindocs
+make generate      # Run go generate ./...
+make generate/docs # Generate docs via tfplugindocs (CI checks this)
 make install    # Install provider locally for testing
 ```
 
@@ -63,4 +64,4 @@ make install    # Install provider locally for testing
 - DCO sign-off required for contributions (`git commit -s`). All commits must have a `Signed-off-by` line — the DCO bot will reject PRs with unsigned commits
 - License: Apache 2.0
 - When modifying resource/data source schemas, always update the corresponding example files in `examples/` as well. These examples are used by `make generate` ([tfplugindocs](https://github.com/hashicorp/terraform-plugin-docs)) to produce documentation. If a new resource or data source is added, create the necessary example files and templates following the tfplugindocs conventions
-- Before creating a pull request, always run `make fmt`, `go generate ./...`, `make generate`, and `make test` to ensure no formatting, code generation, documentation generation, or test failures
+- Before creating a pull request, always run `make fmt`, `go generate ./...`, `make generate/docs`, and `make test` to ensure no formatting, code generation, documentation generation, or test failures. `make generate/docs` runs tfplugindocs to regenerate `docs/` from schemas and examples — CI will fail if generated docs are out of date
