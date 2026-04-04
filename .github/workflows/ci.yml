@@ -52,8 +52,23 @@ jobs:
       - run: go generate ./...
       - name: Verify no changes to generated code
         run: |
-          git diff --compact-summary --exit-code -- ':!docs/' || \
+          git diff --compact-summary --exit-code || \
             (echo "::error::Generated code is out of date. Run 'go generate ./...' and commit the changes." && exit 1)
+
+  docs:
+    name: Check to generate documents
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: go.mod
+          cache: true
       - run: make generate
       - name: Verify no changes to generated docs
         run: |
@@ -102,6 +117,7 @@ jobs:
     needs:
       - build
       - generate
+      - docs
       - golangci-lint
       - unit
     runs-on: ubuntu-latest
@@ -114,6 +130,7 @@ jobs:
           results=(
             "${{ needs.build.result }}"
             "${{ needs.generate.result }}"
+            "${{ needs.docs.result }}"
             "${{ needs.golangci-lint.result }}"
             "${{ needs.unit.result }}"
           )
