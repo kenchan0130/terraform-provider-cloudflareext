@@ -4,8 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	cloudflare "github.com/cloudflare/cloudflare-go/v4"
-	"github.com/cloudflare/cloudflare-go/v4/hyperdrive"
+	"github.com/cloudflare/cloudflare-go/v7/hyperdrive"
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -285,61 +284,60 @@ func (r *configResource) resolveAccessClientSecret(origin *originModel) string {
 func (r *configResource) buildSDKParams(data *configModel) hyperdrive.HyperdriveParam {
 	var origin hyperdrive.HyperdriveOriginUnionParam
 	if !data.Origin.AccessClientID.IsNull() && !data.Origin.AccessClientID.IsUnknown() {
-		origin = hyperdrive.HyperdriveOriginAccessProtectedDatabaseBehindCloudflareTunnelParam{
-			Host:               cloudflare.F(data.Origin.Host.ValueString()),
-			Database:           cloudflare.F(data.Origin.Database.ValueString()),
-			User:               cloudflare.F(data.Origin.User.ValueString()),
-			Password:           cloudflare.F(r.resolvePassword(data.Origin)),
-			Scheme:             cloudflare.F(hyperdrive.HyperdriveOriginAccessProtectedDatabaseBehindCloudflareTunnelScheme(data.Origin.Scheme.ValueString())),
-			AccessClientID:     cloudflare.F(data.Origin.AccessClientID.ValueString()),
-			AccessClientSecret: cloudflare.F(r.resolveAccessClientSecret(data.Origin)),
-		}
+		originParam := hyperdrive.HyperdriveOriginAccessProtectedDatabaseBehindCloudflareTunnelParam{}
+		shared.SetParamField(&originParam.Host, data.Origin.Host.ValueString())
+		shared.SetParamField(&originParam.Database, data.Origin.Database.ValueString())
+		shared.SetParamField(&originParam.User, data.Origin.User.ValueString())
+		shared.SetParamField(&originParam.Password, r.resolvePassword(data.Origin))
+		shared.SetParamField(&originParam.Scheme, hyperdrive.HyperdriveOriginAccessProtectedDatabaseBehindCloudflareTunnelScheme(data.Origin.Scheme.ValueString()))
+		shared.SetParamField(&originParam.AccessClientID, data.Origin.AccessClientID.ValueString())
+		shared.SetParamField(&originParam.AccessClientSecret, r.resolveAccessClientSecret(data.Origin))
+		origin = originParam
 	} else {
-		origin = hyperdrive.HyperdriveOriginPublicDatabaseParam{
-			Host:     cloudflare.F(data.Origin.Host.ValueString()),
-			Port:     cloudflare.F(data.Origin.Port.ValueInt64()),
-			Database: cloudflare.F(data.Origin.Database.ValueString()),
-			User:     cloudflare.F(data.Origin.User.ValueString()),
-			Password: cloudflare.F(r.resolvePassword(data.Origin)),
-			Scheme:   cloudflare.F(hyperdrive.HyperdriveOriginPublicDatabaseScheme(data.Origin.Scheme.ValueString())),
-		}
+		originParam := hyperdrive.HyperdriveOriginPublicDatabaseParam{}
+		shared.SetParamField(&originParam.Host, data.Origin.Host.ValueString())
+		shared.SetParamField(&originParam.Port, data.Origin.Port.ValueInt64())
+		shared.SetParamField(&originParam.Database, data.Origin.Database.ValueString())
+		shared.SetParamField(&originParam.User, data.Origin.User.ValueString())
+		shared.SetParamField(&originParam.Password, r.resolvePassword(data.Origin))
+		shared.SetParamField(&originParam.Scheme, hyperdrive.HyperdriveOriginPublicDatabaseScheme(data.Origin.Scheme.ValueString()))
+		origin = originParam
 	}
 
-	params := hyperdrive.HyperdriveParam{
-		Name:   cloudflare.F(data.Name.ValueString()),
-		Origin: cloudflare.F(origin),
-	}
+	params := hyperdrive.HyperdriveParam{}
+	shared.SetParamField(&params.Name, data.Name.ValueString())
+	shared.SetParamField(&params.Origin, origin)
 
 	if data.Caching != nil {
 		cachingParam := hyperdrive.HyperdriveCachingHyperdriveHyperdriveCachingEnabledParam{}
 		if !data.Caching.Disabled.IsNull() && !data.Caching.Disabled.IsUnknown() {
-			cachingParam.Disabled = cloudflare.F(data.Caching.Disabled.ValueBool())
+			shared.SetParamField(&cachingParam.Disabled, data.Caching.Disabled.ValueBool())
 		}
 		if !data.Caching.MaxAge.IsNull() && !data.Caching.MaxAge.IsUnknown() {
-			cachingParam.MaxAge = cloudflare.F(data.Caching.MaxAge.ValueInt64())
+			shared.SetParamField(&cachingParam.MaxAge, data.Caching.MaxAge.ValueInt64())
 		}
 		if !data.Caching.StaleWhileRevalidate.IsNull() && !data.Caching.StaleWhileRevalidate.IsUnknown() {
-			cachingParam.StaleWhileRevalidate = cloudflare.F(data.Caching.StaleWhileRevalidate.ValueInt64())
+			shared.SetParamField(&cachingParam.StaleWhileRevalidate, data.Caching.StaleWhileRevalidate.ValueInt64())
 		}
-		params.Caching = cloudflare.F[hyperdrive.HyperdriveCachingUnionParam](cachingParam)
+		shared.SetParamField(&params.Caching, cachingParam)
 	}
 
 	if data.MTLS != nil {
 		mtlsParam := hyperdrive.HyperdriveMTLSParam{}
 		if !data.MTLS.CACertificateID.IsNull() && !data.MTLS.CACertificateID.IsUnknown() {
-			mtlsParam.CACertificateID = cloudflare.F(data.MTLS.CACertificateID.ValueString())
+			shared.SetParamField(&mtlsParam.CACertificateID, data.MTLS.CACertificateID.ValueString())
 		}
 		if !data.MTLS.MTLSCertificateID.IsNull() && !data.MTLS.MTLSCertificateID.IsUnknown() {
-			mtlsParam.MTLSCertificateID = cloudflare.F(data.MTLS.MTLSCertificateID.ValueString())
+			shared.SetParamField(&mtlsParam.MTLSCertificateID, data.MTLS.MTLSCertificateID.ValueString())
 		}
 		if !data.MTLS.SSLMode.IsNull() && !data.MTLS.SSLMode.IsUnknown() {
-			mtlsParam.Sslmode = cloudflare.F(data.MTLS.SSLMode.ValueString())
+			shared.SetParamField(&mtlsParam.Sslmode, data.MTLS.SSLMode.ValueString())
 		}
-		params.MTLS = cloudflare.F(mtlsParam)
+		shared.SetParamField(&params.MTLS, mtlsParam)
 	}
 
 	if !data.OriginConnectionLimit.IsNull() && !data.OriginConnectionLimit.IsUnknown() {
-		params.OriginConnectionLimit = cloudflare.F(data.OriginConnectionLimit.ValueInt64())
+		shared.SetParamField(&params.OriginConnectionLimit, data.OriginConnectionLimit.ValueInt64())
 	}
 
 	return params
@@ -361,11 +359,11 @@ func (r *configResource) Create(ctx context.Context, req resource.CreateRequest,
 	r.applyWriteOnlyAttributes(&data, &config)
 
 	params := hyperdrive.ConfigNewParams{
-		AccountID:  cloudflare.F(r.client.AccountID),
 		Hyperdrive: r.buildSDKParams(&data),
 	}
+	shared.SetParamField(&params.AccountID, r.client.AccountID)
 
-	result, err := r.client.Client.Hyperdrive.Configs.New(ctx, params)
+	result, err := r.client.Hyperdrive.Configs.New(ctx, params)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to create Hyperdrive config", err.Error())
 		return
@@ -382,9 +380,9 @@ func (r *configResource) Read(ctx context.Context, req resource.ReadRequest, res
 		return
 	}
 
-	result, err := r.client.Client.Hyperdrive.Configs.Get(ctx, data.ID.ValueString(), hyperdrive.ConfigGetParams{
-		AccountID: cloudflare.F(r.client.AccountID),
-	})
+	params := hyperdrive.ConfigGetParams{}
+	shared.SetParamField(&params.AccountID, r.client.AccountID)
+	result, err := r.client.Hyperdrive.Configs.Get(ctx, data.ID.ValueString(), params)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to read Hyperdrive config", err.Error())
 		return
@@ -410,11 +408,11 @@ func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest,
 	r.applyWriteOnlyAttributes(&data, &config)
 
 	params := hyperdrive.ConfigUpdateParams{
-		AccountID:  cloudflare.F(r.client.AccountID),
 		Hyperdrive: r.buildSDKParams(&data),
 	}
+	shared.SetParamField(&params.AccountID, r.client.AccountID)
 
-	result, err := r.client.Client.Hyperdrive.Configs.Update(ctx, data.ID.ValueString(), params)
+	result, err := r.client.Hyperdrive.Configs.Update(ctx, data.ID.ValueString(), params)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to update Hyperdrive config", err.Error())
 		return
@@ -431,9 +429,9 @@ func (r *configResource) Delete(ctx context.Context, req resource.DeleteRequest,
 		return
 	}
 
-	_, err := r.client.Client.Hyperdrive.Configs.Delete(ctx, data.ID.ValueString(), hyperdrive.ConfigDeleteParams{
-		AccountID: cloudflare.F(r.client.AccountID),
-	})
+	params := hyperdrive.ConfigDeleteParams{}
+	shared.SetParamField(&params.AccountID, r.client.AccountID)
+	_, err := r.client.Hyperdrive.Configs.Delete(ctx, data.ID.ValueString(), params)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to delete Hyperdrive config", err.Error())
 		return

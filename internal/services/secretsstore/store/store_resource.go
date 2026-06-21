@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	cloudflare "github.com/cloudflare/cloudflare-go/v4"
-	"github.com/cloudflare/cloudflare-go/v4/secrets_store"
+	"github.com/cloudflare/cloudflare-go/v7/secrets_store"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -83,27 +82,15 @@ func (r *storeResource) Create(ctx context.Context, req resource.CreateRequest, 
 		return
 	}
 
-	params := secrets_store.StoreNewParams{
-		AccountID: cloudflare.F(r.client.AccountID),
-		Body: []secrets_store.StoreNewParamsBody{
-			{
-				Name: cloudflare.F(data.Name.ValueString()),
-			},
-		},
-	}
+	params := secrets_store.StoreNewParams{}
+	shared.SetParamField(&params.AccountID, r.client.AccountID)
+	shared.SetParamField(&params.Name, data.Name.ValueString())
 
-	iter := r.client.Client.SecretsStore.Stores.NewAutoPaging(ctx, params)
-	var store *secrets_store.StoreNewResponse
-	for iter.Next() {
-		item := iter.Current()
-		store = &item
-		break
-	}
-	if err := iter.Err(); err != nil {
+	store, err := r.client.SecretsStore.Stores.New(ctx, params)
+	if err != nil {
 		resp.Diagnostics.AddError("Failed to create Secrets Store", err.Error())
 		return
 	}
-
 	if store == nil {
 		resp.Diagnostics.AddError("Failed to create Secrets Store", "API returned empty result")
 		return
@@ -156,9 +143,9 @@ func (r *storeResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 		return
 	}
 
-	_, err := r.client.Client.SecretsStore.Stores.Delete(ctx, data.ID.ValueString(), secrets_store.StoreDeleteParams{
-		AccountID: cloudflare.F(r.client.AccountID),
-	})
+	params := secrets_store.StoreDeleteParams{}
+	shared.SetParamField(&params.AccountID, r.client.AccountID)
+	_, err := r.client.SecretsStore.Stores.Delete(ctx, data.ID.ValueString(), params)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to delete Secrets Store", err.Error())
 		return
@@ -187,9 +174,9 @@ func (r *storeResource) ImportState(ctx context.Context, req resource.ImportStat
 }
 
 func (r *storeResource) findStoreByID(ctx context.Context, id string) (*secrets_store.StoreListResponse, error) {
-	iter := r.client.Client.SecretsStore.Stores.ListAutoPaging(ctx, secrets_store.StoreListParams{
-		AccountID: cloudflare.F(r.client.AccountID),
-	})
+	params := secrets_store.StoreListParams{}
+	shared.SetParamField(&params.AccountID, r.client.AccountID)
+	iter := r.client.SecretsStore.Stores.ListAutoPaging(ctx, params)
 	for iter.Next() {
 		store := iter.Current()
 		if store.ID == id {

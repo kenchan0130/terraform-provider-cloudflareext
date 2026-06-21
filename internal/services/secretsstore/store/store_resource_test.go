@@ -14,7 +14,6 @@ import (
 )
 
 // testStoreCreateRequest matches the Cloudflare Secrets Store API create request format.
-// The API accepts an array of create requests.
 // See: https://developers.cloudflare.com/api/resources/secrets_store/subresources/stores/methods/create/
 type testStoreCreateRequest struct {
 	Name string `json:"name"`
@@ -70,22 +69,20 @@ func setupStoreStoreMock() {
 	// POST /accounts/{account_id}/secrets_store/stores
 	httpmock.RegisterResponder(http.MethodPost, baseURL,
 		func(req *http.Request) (*http.Response, error) {
-			var body []testStoreCreateRequest
+			var body testStoreCreateRequest
 			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 				return httpmock.NewStringResponse(400, `{"success":false,"errors":[{"code":400,"message":"invalid request"}]}`), nil
 			}
-			if len(body) == 0 {
+			if body.Name == "" {
 				return httpmock.NewStringResponse(400, `{"success":false,"errors":[{"code":400,"message":"empty request"}]}`), nil
 			}
-			resp := shared.CloudflareResponse[[]testStoreResponse]{
+			resp := shared.CloudflareResponse[testStoreResponse]{
 				Success: true,
-				Result: []testStoreResponse{
-					{
-						ID:       "store-001",
-						Name:     body[0].Name,
-						Created:  "2025-01-01T00:00:00Z",
-						Modified: "2025-01-01T00:00:00Z",
-					},
+				Result: testStoreResponse{
+					ID:       "store-001",
+					Name:     body.Name,
+					Created:  "2025-01-01T00:00:00Z",
+					Modified: "2025-01-01T00:00:00Z",
 				},
 			}
 			return httpmock.NewJsonResponse(200, resp)
@@ -177,19 +174,17 @@ resource "cloudflareext_secrets_store" "test" {
 					if !secondStoreCreated {
 						httpmock.RegisterResponder(http.MethodPost, baseURL,
 							func(req *http.Request) (*http.Response, error) {
-								var body []testStoreCreateRequest
+								var body testStoreCreateRequest
 								if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 									return httpmock.NewStringResponse(400, ""), nil
 								}
-								return httpmock.NewJsonResponse(200, shared.CloudflareResponse[[]testStoreResponse]{
+								return httpmock.NewJsonResponse(200, shared.CloudflareResponse[testStoreResponse]{
 									Success: true,
-									Result: []testStoreResponse{
-										{
-											ID:       "store-002",
-											Name:     body[0].Name,
-											Created:  "2025-01-02T00:00:00Z",
-											Modified: "2025-01-02T00:00:00Z",
-										},
+									Result: testStoreResponse{
+										ID:       "store-002",
+										Name:     body.Name,
+										Created:  "2025-01-02T00:00:00Z",
+										Modified: "2025-01-02T00:00:00Z",
 									},
 								})
 							},
@@ -284,7 +279,7 @@ resource "cloudflareext_secrets_store" "test" {
 						)
 						httpmock.RegisterResponder(http.MethodPost, baseURL,
 							func(req *http.Request) (*http.Response, error) {
-								var body []testStoreCreateRequest
+								var body testStoreCreateRequest
 								if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 									return httpmock.NewStringResponse(400, ""), nil
 								}
@@ -292,21 +287,19 @@ resource "cloudflareext_secrets_store" "test" {
 									newPaginatedListResponder([]testStoreResponse{
 										{
 											ID:       "store-003",
-											Name:     body[0].Name,
+											Name:     body.Name,
 											Created:  "2025-01-03T00:00:00Z",
 											Modified: "2025-01-03T00:00:00Z",
 										},
 									}),
 								)
-								return httpmock.NewJsonResponse(200, shared.CloudflareResponse[[]testStoreResponse]{
+								return httpmock.NewJsonResponse(200, shared.CloudflareResponse[testStoreResponse]{
 									Success: true,
-									Result: []testStoreResponse{
-										{
-											ID:       "store-003",
-											Name:     body[0].Name,
-											Created:  "2025-01-03T00:00:00Z",
-											Modified: "2025-01-03T00:00:00Z",
-										},
+									Result: testStoreResponse{
+										ID:       "store-003",
+										Name:     body.Name,
+										Created:  "2025-01-03T00:00:00Z",
+										Modified: "2025-01-03T00:00:00Z",
 									},
 								})
 							},
