@@ -6,7 +6,7 @@ import "reflect"
 // the SDK root package, which eagerly imports every generated service.
 func SetParamField(field any, value any) {
 	fieldValue := reflect.ValueOf(field)
-	if fieldValue.Kind() != reflect.Ptr || fieldValue.IsNil() {
+	if fieldValue.Kind() != reflect.Pointer || fieldValue.IsNil() {
 		panic("SetParamField requires a non-nil pointer")
 	}
 
