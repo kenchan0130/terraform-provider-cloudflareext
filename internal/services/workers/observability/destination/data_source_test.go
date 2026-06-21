@@ -41,7 +41,7 @@ data "cloudflareext_workers_observability_destination" "test" {
 					testutil.CheckResourceAttr("data.cloudflareext_workers_observability_destination.test", "enabled", "true"),
 					testutil.CheckResourceAttr("data.cloudflareext_workers_observability_destination.test", "type", "logpush"),
 					testutil.CheckResourceAttr("data.cloudflareext_workers_observability_destination.test", "url", "https://otlp.example.com/v1/traces"),
-					testutil.CheckResourceAttr("data.cloudflareext_workers_observability_destination.test", "logpush_dataset", "opentelemetry-traces"),
+					testutil.CheckResourceAttr("data.cloudflareext_workers_observability_destination.test", "logpush_dataset", "opentelemetry_traces"),
 					testutil.CheckResourceAttr("data.cloudflareext_workers_observability_destination.test", "scripts.#", "1"),
 				),
 			},

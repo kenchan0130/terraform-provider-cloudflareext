@@ -18,7 +18,7 @@ resource "cloudflareext_workers_observability_destination" "grafana_traces" {
   enabled         = true
   type            = "logpush"
   url             = "https://otlp-gateway-prod-us-central-0.grafana.net/otlp/v1/traces"
-  logpush_dataset = "opentelemetry-traces"
+  logpush_dataset = "opentelemetry_traces"
 
   headers_wo = {
     Authorization = "Basic example"
@@ -32,7 +32,7 @@ resource "cloudflareext_workers_observability_destination" "grafana_traces_state
   enabled         = true
   type            = "logpush"
   url             = "https://otlp-gateway-prod-us-central-0.grafana.net/otlp/v1/traces"
-  logpush_dataset = "opentelemetry-traces"
+  logpush_dataset = "opentelemetry_traces"
 
   headers = {
     Authorization = "Basic example"
