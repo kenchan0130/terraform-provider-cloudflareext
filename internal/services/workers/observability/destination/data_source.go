@@ -74,7 +74,7 @@ func (d *destinationDataSource) Schema(_ context.Context, _ datasource.SchemaReq
 				Description: "The OpenTelemetry dataset for this destination.",
 				Computed:    true,
 				Validators: []validator.String{
-					stringvalidator.OneOf("opentelemetry_traces", "opentelemetry_logs", "opentelemetry_metrics"),
+					stringvalidator.OneOf("opentelemetry-traces", "opentelemetry-logs", "opentelemetry-metrics"),
 				},
 			},
 			"scripts": schema.ListAttribute{

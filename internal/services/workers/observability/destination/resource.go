@@ -82,7 +82,7 @@ func (r *destinationResource) Schema(_ context.Context, _ resource.SchemaRequest
 				Description: "The OpenTelemetry dataset for this destination.",
 				Required:    true,
 				Validators: []validator.String{
-					stringvalidator.OneOf("opentelemetry_traces", "opentelemetry_logs", "opentelemetry_metrics"),
+					stringvalidator.OneOf("opentelemetry-traces", "opentelemetry-logs", "opentelemetry-metrics"),
 				},
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
@@ -183,7 +183,7 @@ func (r *destinationResource) createBody(ctx context.Context, data *model) (apiD
 	body := apiDestinationRequest{
 		Configuration: apiDestinationRequestConfiguration{
 			Headers:        headers,
-			LogpushDataset: normalizeLogpushDataset(data.LogpushDataset.ValueString()),
+			LogpushDataset: data.LogpushDataset.ValueString(),
 			Type:           data.Type.ValueString(),
 			URL:            data.URL.ValueString(),
 		},
