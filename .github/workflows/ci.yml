@@ -43,6 +43,8 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+    env:
+      AQUA_GLOBAL_CONFIG: ${{ github.workspace }}/aqua.yaml
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -55,13 +57,19 @@ jobs:
         with:
           aqua_version: v2.56.7
           aqua_opts: ""
+      - name: Verify Terraform is available outside the repository
+        working-directory: ${{ runner.temp }}
+        run: terraform version
       - run: make generate/docs
         env:
           AQUA_CONFIG: ${{ github.workspace }}/aqua.yaml
       - name: Verify no changes to generated docs
         run: |
-          git diff --compact-summary --exit-code -- docs/ || \
-            (echo "::error::Generated docs are out of date. Run 'make generate/docs' and commit the changes." && exit 1)
+          git diff --compact-summary --exit-code -- docs/ || {
+            git diff -- docs/
+            echo "::error::Generated docs are out of date. Run 'make generate/docs' and commit the changes."
+            exit 1
+          }
 
   golangci-lint:
     name: golangci-lint
@@ -88,6 +96,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+    env:
+      AQUA_GLOBAL_CONFIG: ${{ github.workspace }}/aqua.yaml
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -100,6 +110,9 @@ jobs:
         with:
           aqua_version: v2.56.7
           aqua_opts: ""
+      - name: Verify Terraform is available outside the repository
+        working-directory: ${{ runner.temp }}
+        run: terraform version
       - run: go mod download
       - run: make test
         env:

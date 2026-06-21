@@ -12,6 +12,8 @@ type CloudflareClient struct {
 	SecretsStore *secrets_store.SecretsStoreService
 	Workers      *workers.WorkerService
 	AccountID    string
+	APIToken     string
+	BaseURL      string
 }
 
 // CloudflareResponse represents the standard Cloudflare API response envelope.

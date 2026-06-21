@@ -1,0 +1,1 @@
+terraform import cloudflareext_workers_observability_destination.grafana_traces grafana-traces
