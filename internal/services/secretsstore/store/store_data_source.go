@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	cloudflare "github.com/cloudflare/cloudflare-go/v4"
-	"github.com/cloudflare/cloudflare-go/v4/secrets_store"
+	"github.com/cloudflare/cloudflare-go/v7/secrets_store"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -83,9 +82,9 @@ func (d *storeDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 	}
 
 	name := data.Name.ValueString()
-	iter := d.client.Client.SecretsStore.Stores.ListAutoPaging(ctx, secrets_store.StoreListParams{
-		AccountID: cloudflare.F(d.client.AccountID),
-	})
+	params := secrets_store.StoreListParams{}
+	shared.SetParamField(&params.AccountID, d.client.AccountID)
+	iter := d.client.SecretsStore.Stores.ListAutoPaging(ctx, params)
 	for iter.Next() {
 		store := iter.Current()
 		if store.Name == name {

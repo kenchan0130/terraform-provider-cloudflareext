@@ -7,3 +7,4 @@ registries:
 
 packages:
   - name: suzuki-shunsuke/ghalint@v1.5.5
+  - name: hashicorp/terraform@v1.15.6
