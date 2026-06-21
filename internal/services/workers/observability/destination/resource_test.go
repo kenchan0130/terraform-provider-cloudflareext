@@ -57,7 +57,7 @@ func newDestinationResponse(name, url string, headers map[string]string) testDes
 			DestinationConf: "https://api.cloudflare.com/client/v4/accounts/test-account-id/logpush/jobs/123",
 			Headers:         headers,
 			JobStatus:       map[string]string{},
-			LogpushDataset:  "opentelemetry_traces",
+			LogpushDataset:  "opentelemetry-traces",
 			LogpushJob:      &logpushJob,
 			Type:            "logpush",
 			URL:             url,
@@ -231,7 +231,7 @@ resource "cloudflareext_workers_observability_destination" "test" {
   enabled         = true
   type            = "logpush"
   url             = "https://otlp.example.com/v1/traces"
-  logpush_dataset = "opentelemetry_traces"
+  logpush_dataset = "opentelemetry-traces"
 
   headers_wo = {
     Authorization = "Basic secret"
@@ -247,11 +247,68 @@ resource "cloudflareext_workers_observability_destination" "test" {
 					testutil.CheckResourceAttr("cloudflareext_workers_observability_destination.test", "enabled", "true"),
 					testutil.CheckResourceAttr("cloudflareext_workers_observability_destination.test", "type", "logpush"),
 					testutil.CheckResourceAttr("cloudflareext_workers_observability_destination.test", "url", "https://otlp.example.com/v1/traces"),
-					testutil.CheckResourceAttr("cloudflareext_workers_observability_destination.test", "logpush_dataset", "opentelemetry_traces"),
+					testutil.CheckResourceAttr("cloudflareext_workers_observability_destination.test", "logpush_dataset", "opentelemetry-traces"),
 					testutil.CheckResourceAttr("cloudflareext_workers_observability_destination.test", "scripts.#", "1"),
 					resource.TestCheckNoResourceAttr("cloudflareext_workers_observability_destination.test", "headers.%"),
 					resource.TestCheckNoResourceAttr("cloudflareext_workers_observability_destination.test", "headers_wo.%"),
 				),
+			},
+		},
+	})
+}
+
+func TestUnitWorkersObservabilityDestination_NormalizesLogpushDatasetToHyphen(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	baseURL := "https://api.cloudflare.example.com/client/v4/accounts/test-account-id/workers/observability/destinations"
+	current := newDestinationResponse("grafana-traces", "https://otlp.example.com/v1/traces", map[string]string{
+		"Authorization": "Basic secret",
+	})
+	current.Configuration.LogpushDataset = "opentelemetry_traces"
+
+	httpmock.RegisterResponder(http.MethodPost, baseURL,
+		httpmock.NewJsonResponderOrPanic(200, testDestinationEnvelope[testDestinationResponse]{
+			Errors:   []map[string]string{},
+			Messages: []map[string]string{{"message": "Resource created"}},
+			Result:   current,
+			Success:  true,
+		}),
+	)
+	httpmock.RegisterResponder(http.MethodGet, baseURL,
+		func(_ *http.Request) (*http.Response, error) {
+			return destinationListResponder([]testDestinationResponse{current})(nil)
+		},
+	)
+	httpmock.RegisterResponder(http.MethodDelete, baseURL+"/grafana-traces",
+		httpmock.NewJsonResponderOrPanic(200, testDestinationEnvelope[testDestinationResponse]{
+			Errors:   []map[string]string{},
+			Messages: []map[string]string{{"message": "Resource deleted"}},
+			Result:   current,
+			Success:  true,
+		}),
+	)
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_workers_observability_destination" "test" {
+  name            = "grafana-traces"
+  enabled         = true
+  type            = "logpush"
+  url             = "https://otlp.example.com/v1/traces"
+  logpush_dataset = "opentelemetry-traces"
+
+  headers_wo = {
+    Authorization = "Basic secret"
+  }
+
+  headers_wo_version = "1"
+}
+`),
+				Check: testutil.CheckResourceAttr("cloudflareext_workers_observability_destination.test", "logpush_dataset", "opentelemetry-traces"),
 			},
 		},
 	})
@@ -273,7 +330,7 @@ resource "cloudflareext_workers_observability_destination" "test" {
   enabled         = true
   type            = "logpush"
   url             = "https://otlp.example.com/v1/traces"
-  logpush_dataset = "opentelemetry_traces"
+  logpush_dataset = "opentelemetry-traces"
 
   headers = {
     Authorization = "Basic secret"
@@ -293,7 +350,23 @@ func TestUnitWorkersObservabilityDestination_ImportStateDoesNotReplaceLogpushDat
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()
 
-	setupDestinationMock()
+	baseURL := "https://api.cloudflare.example.com/client/v4/accounts/test-account-id/workers/observability/destinations"
+	current := newDestinationResponse("grafana-traces", "https://otlp.example.com/v1/traces", nil)
+	current.Configuration.LogpushDataset = "opentelemetry_traces"
+
+	httpmock.RegisterResponder(http.MethodGet, baseURL,
+		func(_ *http.Request) (*http.Response, error) {
+			return destinationListResponder([]testDestinationResponse{current})(nil)
+		},
+	)
+	httpmock.RegisterResponder(http.MethodDelete, baseURL+"/grafana-traces",
+		httpmock.NewJsonResponderOrPanic(200, testDestinationEnvelope[testDestinationResponse]{
+			Errors:   []map[string]string{},
+			Messages: []map[string]string{{"message": "Resource deleted"}},
+			Result:   current,
+			Success:  true,
+		}),
+	)
 
 	config := testutil.TestConfig(`
 resource "cloudflareext_workers_observability_destination" "test" {
@@ -301,7 +374,7 @@ resource "cloudflareext_workers_observability_destination" "test" {
   enabled         = true
   type            = "logpush"
   url             = "https://otlp.example.com/v1/traces"
-  logpush_dataset = "opentelemetry_traces"
+  logpush_dataset = "opentelemetry-traces"
 }
 `)
 
@@ -317,7 +390,7 @@ resource "cloudflareext_workers_observability_destination" "test" {
 				Check: testutil.CheckResourceAttr(
 					"cloudflareext_workers_observability_destination.test",
 					"logpush_dataset",
-					"opentelemetry_traces",
+					"opentelemetry-traces",
 				),
 			},
 			{
@@ -344,7 +417,7 @@ resource "cloudflareext_workers_observability_destination" "test" {
   enabled         = true
   type            = "logpush"
   url             = "https://otlp.example.com/v1/traces"
-  logpush_dataset = "opentelemetry_traces"
+  logpush_dataset = "opentelemetry-traces"
 
   headers_wo = {
     Authorization = "Basic secret"
@@ -362,7 +435,7 @@ resource "cloudflareext_workers_observability_destination" "test" {
   enabled         = true
   type            = "logpush"
   url             = "https://otlp.example.com/v1/traces-updated"
-  logpush_dataset = "opentelemetry_traces"
+  logpush_dataset = "opentelemetry-traces"
 
   headers_wo = {
     Authorization = "Basic new-secret"
@@ -396,7 +469,7 @@ resource "cloudflareext_workers_observability_destination" "test" {
   enabled         = true
   type            = "logpush"
   url             = "https://otlp.example.com/v1/traces"
-  logpush_dataset = "opentelemetry_traces"
+  logpush_dataset = "opentelemetry-traces"
 
   headers_wo = {
     Authorization = "Basic secret"
@@ -413,7 +486,7 @@ resource "cloudflareext_workers_observability_destination" "test" {
   enabled         = true
   type            = "logpush"
   url             = "https://otlp.example.com/v1/traces-updated"
-  logpush_dataset = "opentelemetry_traces"
+  logpush_dataset = "opentelemetry-traces"
 
   headers_wo = {
     Authorization = "Basic new-secret"
@@ -445,7 +518,7 @@ resource "cloudflareext_workers_observability_destination" "test" {
   enabled         = true
   type            = "logpush"
   url             = "https://otlp.example.com/v1/traces"
-  logpush_dataset = "opentelemetry_traces"
+  logpush_dataset = "opentelemetry-traces"
 
   headers_wo = {
     Authorization = "Basic secret"

@@ -41,9 +41,36 @@ data "cloudflareext_workers_observability_destination" "test" {
 					testutil.CheckResourceAttr("data.cloudflareext_workers_observability_destination.test", "enabled", "true"),
 					testutil.CheckResourceAttr("data.cloudflareext_workers_observability_destination.test", "type", "logpush"),
 					testutil.CheckResourceAttr("data.cloudflareext_workers_observability_destination.test", "url", "https://otlp.example.com/v1/traces"),
-					testutil.CheckResourceAttr("data.cloudflareext_workers_observability_destination.test", "logpush_dataset", "opentelemetry_traces"),
+					testutil.CheckResourceAttr("data.cloudflareext_workers_observability_destination.test", "logpush_dataset", "opentelemetry-traces"),
 					testutil.CheckResourceAttr("data.cloudflareext_workers_observability_destination.test", "scripts.#", "1"),
 				),
+			},
+		},
+	})
+}
+
+func TestUnitWorkersObservabilityDestinationDataSource_NormalizesLogpushDatasetToHyphen(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	destination := newDestinationResponse("grafana-traces", "https://otlp.example.com/v1/traces", nil)
+	destination.Configuration.LogpushDataset = "opentelemetry_traces"
+
+	httpmock.RegisterResponder(http.MethodGet,
+		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/workers/observability/destinations",
+		destinationListResponder([]testDestinationResponse{destination}),
+	)
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testutil.TestConfig(`
+data "cloudflareext_workers_observability_destination" "test" {
+  name = "grafana-traces"
+}
+`),
+				Check: testutil.CheckResourceAttr("data.cloudflareext_workers_observability_destination.test", "logpush_dataset", "opentelemetry-traces"),
 			},
 		},
 	})
