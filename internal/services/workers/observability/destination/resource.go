@@ -12,7 +12,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/float64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -138,9 +137,6 @@ func (r *destinationResource) Schema(_ context.Context, _ resource.SchemaRequest
 			"logpush_job": schema.Float64Attribute{
 				Description: "The generated Logpush job identifier.",
 				Computed:    true,
-				PlanModifiers: []planmodifier.Float64{
-					float64planmodifier.UseStateForUnknown(),
-				},
 			},
 		},
 	}
@@ -239,6 +235,21 @@ func setHeaders(ctx context.Context, data *model, headers map[string]string) dia
 	return diags
 }
 
+func setLogpushJob(data *model, logpushJob *float64) {
+	if logpushJob == nil {
+		data.LogpushJob = types.Float64Null()
+		return
+	}
+	data.LogpushJob = types.Float64Value(*logpushJob)
+}
+
+func setLogpushJobIfPresent(data *model, logpushJob *float64) {
+	if logpushJob == nil {
+		return
+	}
+	data.LogpushJob = types.Float64Value(*logpushJob)
+}
+
 func applyCreateResponse(ctx context.Context, data *model, result *apiDestinationResponse) diag.Diagnostics {
 	var diags diag.Diagnostics
 	data.ID = types.StringValue(result.Slug)
@@ -249,7 +260,7 @@ func applyCreateResponse(ctx context.Context, data *model, result *apiDestinatio
 	data.URL = types.StringValue(result.Configuration.URL)
 	data.LogpushDataset = types.StringValue(result.Configuration.LogpushDataset)
 	data.DestinationConf = types.StringValue(result.Configuration.DestinationConf)
-	data.LogpushJob = types.Float64Value(result.Configuration.LogpushJob)
+	setLogpushJob(data, result.Configuration.LogpushJob)
 	diags.Append(setScripts(ctx, data, result.Scripts)...)
 	return diags
 }
@@ -263,7 +274,7 @@ func applyUpdateResponse(ctx context.Context, data *model, result *apiDestinatio
 	data.Type = types.StringValue(result.Configuration.Type)
 	data.URL = types.StringValue(result.Configuration.URL)
 	data.DestinationConf = types.StringValue(result.Configuration.DestinationConf)
-	data.LogpushJob = types.Float64Value(result.Configuration.LogpushJob)
+	setLogpushJob(data, result.Configuration.LogpushJob)
 	diags.Append(setScripts(ctx, data, result.Scripts)...)
 	return diags
 }
@@ -278,6 +289,7 @@ func applyListResponse(ctx context.Context, data *model, result *apiDestinationR
 	data.URL = types.StringValue(result.Configuration.URL)
 	data.LogpushDataset = types.StringValue(result.Configuration.LogpushDataset)
 	data.DestinationConf = types.StringValue(result.Configuration.DestinationConf)
+	setLogpushJobIfPresent(data, result.Configuration.LogpushJob)
 	diags.Append(setScripts(ctx, data, result.Scripts)...)
 	if !data.Headers.IsNull() {
 		diags.Append(setHeaders(ctx, data, result.Configuration.Headers)...)

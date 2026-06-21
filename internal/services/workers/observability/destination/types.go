@@ -28,7 +28,7 @@ type apiDestinationResponseConfiguration struct {
 	DestinationConf string            `json:"destination_conf"`
 	Headers         map[string]string `json:"headers"`
 	LogpushDataset  string            `json:"logpushDataset"`
-	LogpushJob      float64           `json:"logpushJob"`
+	LogpushJob      *float64          `json:"logpushJob"`
 	Type            string            `json:"type"`
 	URL             string            `json:"url"`
 }
