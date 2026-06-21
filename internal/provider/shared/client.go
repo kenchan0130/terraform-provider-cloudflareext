@@ -1,13 +1,17 @@
 package shared
 
 import (
-	cloudflare "github.com/cloudflare/cloudflare-go/v4"
+	"github.com/cloudflare/cloudflare-go/v7/hyperdrive"
+	"github.com/cloudflare/cloudflare-go/v7/secrets_store"
+	"github.com/cloudflare/cloudflare-go/v7/workers"
 )
 
 // CloudflareClient wraps the official cloudflare-go SDK client with the account ID.
 type CloudflareClient struct {
-	Client    *cloudflare.Client
-	AccountID string
+	Hyperdrive   *hyperdrive.HyperdriveService
+	SecretsStore *secrets_store.SecretsStoreService
+	Workers      *workers.WorkerService
+	AccountID    string
 }
 
 // CloudflareResponse represents the standard Cloudflare API response envelope.

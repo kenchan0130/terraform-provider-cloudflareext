@@ -4,8 +4,10 @@ import (
 	"context"
 	"os"
 
-	cloudflare "github.com/cloudflare/cloudflare-go/v4"
-	"github.com/cloudflare/cloudflare-go/v4/option"
+	"github.com/cloudflare/cloudflare-go/v7/hyperdrive"
+	"github.com/cloudflare/cloudflare-go/v7/option"
+	"github.com/cloudflare/cloudflare-go/v7/secrets_store"
+	"github.com/cloudflare/cloudflare-go/v7/workers"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
@@ -13,9 +15,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/provider/shared"
-	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/hyperdrive"
+	hyperdriveresource "github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/hyperdrive"
 	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/secretsstore/secret"
 	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/secretsstore/store"
+	observabilitydestination "github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/workers/observability/destination"
 	workerssecret "github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/workers/secret"
 )
 
@@ -123,11 +126,11 @@ func (p *CloudflareExtProvider) Configure(_ context.Context, req provider.Config
 		option.WithAPIToken(apiToken),
 		option.WithBaseURL(baseURL),
 	}
-	cfClient := cloudflare.NewClient(opts...)
-
 	client := &shared.CloudflareClient{
-		Client:    cfClient,
-		AccountID: accountID,
+		Hyperdrive:   hyperdrive.NewHyperdriveService(opts...),
+		SecretsStore: secrets_store.NewSecretsStoreService(opts...),
+		Workers:      workers.NewWorkerService(opts...),
+		AccountID:    accountID,
 	}
 
 	resp.DataSourceData = client
@@ -136,15 +139,17 @@ func (p *CloudflareExtProvider) Configure(_ context.Context, req provider.Config
 
 func (p *CloudflareExtProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
-		hyperdrive.NewConfigResource,
+		hyperdriveresource.NewConfigResource,
 		store.NewStoreResource,
 		secret.NewSecretResource,
 		workerssecret.NewSecretResource,
+		observabilitydestination.NewDestinationResource,
 	}
 }
 
 func (p *CloudflareExtProvider) DataSources(_ context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
 		store.NewStoreDataSource,
+		observabilitydestination.NewDestinationDataSource,
 	}
 }

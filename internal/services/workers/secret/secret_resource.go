@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	cloudflare "github.com/cloudflare/cloudflare-go/v4"
-	"github.com/cloudflare/cloudflare-go/v4/workers"
+	"github.com/cloudflare/cloudflare-go/v7/workers"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -130,16 +129,17 @@ func (r *secretResource) applyWriteOnlyAttributes(data, config *model) {
 }
 
 func (r *secretResource) upsert(ctx context.Context, data *model, operation string) error {
-	params := workers.ScriptSecretUpdateParams{
-		AccountID: cloudflare.F(r.client.AccountID),
-		Body: workers.ScriptSecretUpdateParamsBodyWorkersBindingKindSecretText{
-			Name: cloudflare.F(data.Name.ValueString()),
-			Text: cloudflare.F(r.resolveText(data)),
-			Type: cloudflare.F(workers.ScriptSecretUpdateParamsBodyWorkersBindingKindSecretTextTypeSecretText),
-		},
-	}
+	body := workers.ScriptSecretUpdateParamsBodyWorkersBindingKindSecretText{}
+	shared.SetParamField(&body.Name, data.Name.ValueString())
+	shared.SetParamField(&body.Text, r.resolveText(data))
+	shared.SetParamField(&body.Type, workers.ScriptSecretUpdateParamsBodyWorkersBindingKindSecretTextTypeSecretText)
 
-	result, err := r.client.Client.Workers.Scripts.Secrets.Update(ctx, data.ScriptName.ValueString(), params)
+	params := workers.ScriptSecretUpdateParams{
+		Body: body,
+	}
+	shared.SetParamField(&params.AccountID, r.client.AccountID)
+
+	result, err := r.client.Workers.Scripts.Secrets.Update(ctx, data.ScriptName.ValueString(), params)
 	if err != nil {
 		return fmt.Errorf("failed to %s Workers script secret: %w", operation, err)
 	}
@@ -179,12 +179,10 @@ func (r *secretResource) Read(ctx context.Context, req resource.ReadRequest, res
 		return
 	}
 
-	result, err := r.client.Client.Workers.Scripts.Secrets.Get(ctx,
+	result, err := r.client.Workers.Scripts.Secrets.Get(ctx,
 		data.ScriptName.ValueString(),
 		data.Name.ValueString(),
-		workers.ScriptSecretGetParams{
-			AccountID: cloudflare.F(r.client.AccountID),
-		},
+		scriptSecretGetParams(r.client.AccountID),
 	)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to read Workers script secret", err.Error())
@@ -227,17 +225,27 @@ func (r *secretResource) Delete(ctx context.Context, req resource.DeleteRequest,
 		return
 	}
 
-	_, err := r.client.Client.Workers.Scripts.Secrets.Delete(ctx,
+	_, err := r.client.Workers.Scripts.Secrets.Delete(ctx,
 		data.ScriptName.ValueString(),
 		data.Name.ValueString(),
-		workers.ScriptSecretDeleteParams{
-			AccountID: cloudflare.F(r.client.AccountID),
-		},
+		scriptSecretDeleteParams(r.client.AccountID),
 	)
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to delete Workers script secret", err.Error())
 		return
 	}
+}
+
+func scriptSecretGetParams(accountID string) workers.ScriptSecretGetParams {
+	params := workers.ScriptSecretGetParams{}
+	shared.SetParamField(&params.AccountID, accountID)
+	return params
+}
+
+func scriptSecretDeleteParams(accountID string) workers.ScriptSecretDeleteParams {
+	params := workers.ScriptSecretDeleteParams{}
+	shared.SetParamField(&params.AccountID, accountID)
+	return params
 }
 
 func (r *secretResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
