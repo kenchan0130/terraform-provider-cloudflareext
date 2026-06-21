@@ -74,7 +74,7 @@ func (d *destinationDataSource) Schema(_ context.Context, _ datasource.SchemaReq
 				Description: "The OpenTelemetry dataset for this destination.",
 				Computed:    true,
 				Validators: []validator.String{
-					stringvalidator.OneOf("opentelemetry-traces", "opentelemetry-logs", "opentelemetry-metrics"),
+					stringvalidator.OneOf("opentelemetry_traces", "opentelemetry_logs", "opentelemetry_metrics"),
 				},
 			},
 			"scripts": schema.ListAttribute{
@@ -129,7 +129,7 @@ func (d *destinationDataSource) Read(ctx context.Context, req datasource.ReadReq
 		data.Enabled = types.BoolValue(destination.Enabled)
 		data.Type = types.StringValue(destination.Configuration.Type)
 		data.URL = types.StringValue(destination.Configuration.URL)
-		data.LogpushDataset = types.StringValue(destination.Configuration.LogpushDataset)
+		data.LogpushDataset = types.StringValue(normalizeLogpushDataset(destination.Configuration.LogpushDataset))
 		data.DestinationConf = types.StringValue(destination.Configuration.DestinationConf)
 
 		scripts, diags := types.ListValueFrom(ctx, types.StringType, destination.Scripts)

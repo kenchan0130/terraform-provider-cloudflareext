@@ -82,7 +82,7 @@ func (r *destinationResource) Schema(_ context.Context, _ resource.SchemaRequest
 				Description: "The OpenTelemetry dataset for this destination.",
 				Required:    true,
 				Validators: []validator.String{
-					stringvalidator.OneOf("opentelemetry-traces", "opentelemetry-logs", "opentelemetry-metrics"),
+					stringvalidator.OneOf("opentelemetry_traces", "opentelemetry_logs", "opentelemetry_metrics"),
 				},
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
@@ -183,7 +183,7 @@ func (r *destinationResource) createBody(ctx context.Context, data *model) (apiD
 	body := apiDestinationRequest{
 		Configuration: apiDestinationRequestConfiguration{
 			Headers:        headers,
-			LogpushDataset: data.LogpushDataset.ValueString(),
+			LogpushDataset: normalizeLogpushDataset(data.LogpushDataset.ValueString()),
 			Type:           data.Type.ValueString(),
 			URL:            data.URL.ValueString(),
 		},
@@ -258,7 +258,7 @@ func applyCreateResponse(ctx context.Context, data *model, result *apiDestinatio
 	data.Enabled = types.BoolValue(result.Enabled)
 	data.Type = types.StringValue(result.Configuration.Type)
 	data.URL = types.StringValue(result.Configuration.URL)
-	data.LogpushDataset = types.StringValue(result.Configuration.LogpushDataset)
+	data.LogpushDataset = types.StringValue(normalizeLogpushDataset(result.Configuration.LogpushDataset))
 	data.DestinationConf = types.StringValue(result.Configuration.DestinationConf)
 	setLogpushJob(data, result.Configuration.LogpushJob)
 	diags.Append(setScripts(ctx, data, result.Scripts)...)
@@ -287,7 +287,7 @@ func applyListResponse(ctx context.Context, data *model, result *apiDestinationR
 	data.Enabled = types.BoolValue(result.Enabled)
 	data.Type = types.StringValue(result.Configuration.Type)
 	data.URL = types.StringValue(result.Configuration.URL)
-	data.LogpushDataset = types.StringValue(result.Configuration.LogpushDataset)
+	data.LogpushDataset = types.StringValue(normalizeLogpushDataset(result.Configuration.LogpushDataset))
 	data.DestinationConf = types.StringValue(result.Configuration.DestinationConf)
 	setLogpushJobIfPresent(data, result.Configuration.LogpushJob)
 	diags.Append(setScripts(ctx, data, result.Scripts)...)
