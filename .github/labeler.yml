@@ -6,6 +6,10 @@ service/secretsstore:
   - changed-files:
       - any-glob-to-any-file: internal/services/secretsstore/**/*
 
+service/workers:
+  - changed-files:
+      - any-glob-to-any-file: internal/services/workers/**/*
+
 provider:
   - changed-files:
       - any-glob-to-any-file: internal/provider/**/*
