@@ -37,7 +37,7 @@ type testDestinationConfiguration struct {
 	Headers         map[string]string `json:"headers,omitempty"`
 	JobStatus       map[string]string `json:"jobStatus,omitempty"`
 	LogpushDataset  string            `json:"logpushDataset"`
-	LogpushJob      float64           `json:"logpushJob,omitempty"`
+	LogpushJob      *float64          `json:"logpushJob,omitempty"`
 	Type            string            `json:"type"`
 	URL             string            `json:"url"`
 }
@@ -51,13 +51,14 @@ type testDestinationEnvelope[T any] struct {
 }
 
 func newDestinationResponse(name, url string, headers map[string]string) testDestinationResponse {
+	logpushJob := float64(123)
 	return testDestinationResponse{
 		Configuration: testDestinationConfiguration{
 			DestinationConf: "https://api.cloudflare.com/client/v4/accounts/test-account-id/logpush/jobs/123",
 			Headers:         headers,
 			JobStatus:       map[string]string{},
 			LogpushDataset:  "opentelemetry-traces",
-			LogpushJob:      123,
+			LogpushJob:      &logpushJob,
 			Type:            "logpush",
 			URL:             url,
 		},
@@ -66,6 +67,11 @@ func newDestinationResponse(name, url string, headers map[string]string) testDes
 		Scripts: []string{"worker-a"},
 		Slug:    "grafana-traces",
 	}
+}
+
+func withoutLogpushJob(destination testDestinationResponse) testDestinationResponse {
+	destination.Configuration.LogpushJob = nil
+	return destination
 }
 
 func destinationListResponder(destinations []testDestinationResponse) httpmock.Responder {
@@ -101,6 +107,68 @@ func setupDestinationMock() {
 			resp.Configuration.LogpushDataset = body.Configuration.LogpushDataset
 			resp.Configuration.Type = body.Configuration.Type
 			current = newDestinationResponse(body.Name, body.Configuration.URL, body.Configuration.Headers)
+			current.Configuration.LogpushDataset = body.Configuration.LogpushDataset
+			current.Configuration.Type = body.Configuration.Type
+			return httpmock.NewJsonResponse(200, testDestinationEnvelope[testDestinationResponse]{
+				Errors:   []map[string]string{},
+				Messages: []map[string]string{{"message": "Resource created"}},
+				Result:   resp,
+				Success:  true,
+			})
+		},
+	)
+
+	httpmock.RegisterResponder(http.MethodGet, baseURL,
+		func(_ *http.Request) (*http.Response, error) {
+			return destinationListResponder([]testDestinationResponse{current})(nil)
+		},
+	)
+
+	httpmock.RegisterResponder(http.MethodPatch, baseURL+"/grafana-traces",
+		func(req *http.Request) (*http.Response, error) {
+			var body testDestinationRequest
+			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+				return httpmock.NewStringResponse(400, `{"success":false,"errors":[{"message":"invalid request"}]}`), nil
+			}
+			resp := newDestinationResponse("grafana-traces", body.Configuration.URL, nil)
+			resp.Configuration.Type = body.Configuration.Type
+			current = newDestinationResponse("grafana-traces", body.Configuration.URL, body.Configuration.Headers)
+			current.Configuration.Type = body.Configuration.Type
+			return httpmock.NewJsonResponse(200, testDestinationEnvelope[testDestinationResponse]{
+				Errors:   []map[string]string{},
+				Messages: []map[string]string{{"message": "Resource updated"}},
+				Result:   resp,
+				Success:  true,
+			})
+		},
+	)
+
+	httpmock.RegisterResponder(http.MethodDelete, baseURL+"/grafana-traces",
+		httpmock.NewJsonResponderOrPanic(200, testDestinationEnvelope[testDestinationResponse]{
+			Errors:   []map[string]string{},
+			Messages: []map[string]string{{"message": "Resource deleted"}},
+			Result:   newDestinationResponse("grafana-traces", "https://otlp.example.com/v1/traces", nil),
+			Success:  true,
+		}),
+	)
+}
+
+func setupDestinationMockWithLogpushJobAfterUpdate() {
+	baseURL := "https://api.cloudflare.example.com/client/v4/accounts/test-account-id/workers/observability/destinations"
+	current := withoutLogpushJob(newDestinationResponse("grafana-traces", "https://otlp.example.com/v1/traces", map[string]string{
+		"Authorization": "Basic secret",
+	}))
+
+	httpmock.RegisterResponder(http.MethodPost, baseURL,
+		func(req *http.Request) (*http.Response, error) {
+			var body testDestinationRequest
+			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+				return httpmock.NewStringResponse(400, `{"success":false,"errors":[{"message":"invalid request"}]}`), nil
+			}
+			resp := withoutLogpushJob(newDestinationResponse(body.Name, body.Configuration.URL, nil))
+			resp.Configuration.LogpushDataset = body.Configuration.LogpushDataset
+			resp.Configuration.Type = body.Configuration.Type
+			current = withoutLogpushJob(newDestinationResponse(body.Name, body.Configuration.URL, body.Configuration.Headers))
 			current.Configuration.LogpushDataset = body.Configuration.LogpushDataset
 			current.Configuration.Type = body.Configuration.Type
 			return httpmock.NewJsonResponse(200, testDestinationEnvelope[testDestinationResponse]{
@@ -215,6 +283,58 @@ resource "cloudflareext_workers_observability_destination" "test" {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					testutil.CheckResourceAttr("cloudflareext_workers_observability_destination.test", "headers.%", "1"),
 					testutil.CheckResourceAttr("cloudflareext_workers_observability_destination.test", "headers.Authorization", "Basic secret"),
+				),
+			},
+		},
+	})
+}
+
+func TestUnitWorkersObservabilityDestination_UpdateCanSetPreviouslyNullLogpushJob(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	setupDestinationMockWithLogpushJobAfterUpdate()
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_workers_observability_destination" "test" {
+  name            = "grafana-traces"
+  enabled         = true
+  type            = "logpush"
+  url             = "https://otlp.example.com/v1/traces"
+  logpush_dataset = "opentelemetry-traces"
+
+  headers_wo = {
+    Authorization = "Basic secret"
+  }
+
+  headers_wo_version = "1"
+}
+`),
+				Check: resource.TestCheckNoResourceAttr("cloudflareext_workers_observability_destination.test", "logpush_job"),
+			},
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_workers_observability_destination" "test" {
+  name            = "grafana-traces"
+  enabled         = true
+  type            = "logpush"
+  url             = "https://otlp.example.com/v1/traces-updated"
+  logpush_dataset = "opentelemetry-traces"
+
+  headers_wo = {
+    Authorization = "Basic new-secret"
+  }
+
+  headers_wo_version = "2"
+}
+`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testutil.CheckResourceAttr("cloudflareext_workers_observability_destination.test", "url", "https://otlp.example.com/v1/traces-updated"),
+					testutil.CheckResourceAttr("cloudflareext_workers_observability_destination.test", "logpush_job", "123"),
 				),
 			},
 		},
