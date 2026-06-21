@@ -18,6 +18,7 @@ import (
 	hyperdriveresource "github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/hyperdrive"
 	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/secretsstore/secret"
 	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/secretsstore/store"
+	observabilitydestination "github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/workers/observability/destination"
 	workerssecret "github.com/kenchan0130/terraform-provider-cloudflareext/internal/services/workers/secret"
 )
 
@@ -131,6 +132,8 @@ func (p *CloudflareExtProvider) Configure(_ context.Context, req provider.Config
 		SecretsStore: secrets_store.NewSecretsStoreService(opts...),
 		Workers:      workers.NewWorkerService(opts...),
 		AccountID:    accountID,
+		APIToken:     apiToken,
+		BaseURL:      baseURL,
 	}
 
 	resp.DataSourceData = client
@@ -143,11 +146,13 @@ func (p *CloudflareExtProvider) Resources(_ context.Context) []func() resource.R
 		store.NewStoreResource,
 		secret.NewSecretResource,
 		workerssecret.NewSecretResource,
+		observabilitydestination.NewDestinationResource,
 	}
 }
 
 func (p *CloudflareExtProvider) DataSources(_ context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
 		store.NewStoreDataSource,
+		observabilitydestination.NewDestinationDataSource,
 	}
 }
