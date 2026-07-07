@@ -3,7 +3,6 @@
   extends: [
     "config:best-practices",
     "github>aquaproj/aqua-renovate-config#2.10.0",
-    "schedule:earlyMondays",
     "group:allNonMajor",
   ],
   automerge: true,
@@ -15,7 +14,9 @@
   prConcurrentLimit: 5,
   lockFileMaintenance: {
     enabled: true,
-    schedule: ["before 3am on sunday"],
+    // Wide window (all weekend) because Mend Community jobs only run every
+    // few days at arbitrary times; narrow windows are silently skipped.
+    schedule: ["* * * * 0,6"],
   },
   vulnerabilityAlerts: {
     enabled: true,
