@@ -185,6 +185,10 @@ func (r *secretResource) Read(ctx context.Context, req resource.ReadRequest, res
 		scriptSecretGetParams(r.client.AccountID),
 	)
 	if err != nil {
+		if shared.IsNotFoundError(err) {
+			resp.State.RemoveResource(ctx)
+			return
+		}
 		resp.Diagnostics.AddError("Failed to read Workers script secret", err.Error())
 		return
 	}

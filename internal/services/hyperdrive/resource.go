@@ -384,6 +384,10 @@ func (r *configResource) Read(ctx context.Context, req resource.ReadRequest, res
 	shared.SetParamField(&params.AccountID, r.client.AccountID)
 	result, err := r.client.Hyperdrive.Configs.Get(ctx, data.ID.ValueString(), params)
 	if err != nil {
+		if shared.IsNotFoundError(err) {
+			resp.State.RemoveResource(ctx)
+			return
+		}
 		resp.Diagnostics.AddError("Failed to read Hyperdrive config", err.Error())
 		return
 	}
@@ -450,7 +454,17 @@ func (r *configResource) mapResponseToModel(result *hyperdrive.Hyperdrive, data 
 		data.Origin = &originModel{}
 	}
 	data.Origin.Host = types.StringValue(result.Origin.Host)
-	data.Origin.Port = types.Int64Value(result.Origin.Port)
+	if result.Origin.Port != 0 {
+		data.Origin.Port = types.Int64Value(result.Origin.Port)
+	} else if data.Origin.Port.IsNull() || data.Origin.Port.IsUnknown() {
+		// Access-protected origins (behind a Cloudflare Tunnel) have no `port`
+		// field in the API request or response. Fall back to the schema
+		// default so imported state matches the plan's computed default and
+		// doesn't produce an inconsistent-result error or a permanent diff.
+		data.Origin.Port = types.Int64Value(5432)
+	}
+	// If port is already known (non-null, non-unknown) in data.Origin, leave
+	// it as-is; the access-protected origin's response omits port entirely.
 	data.Origin.Database = types.StringValue(result.Origin.Database)
 	data.Origin.User = types.StringValue(result.Origin.User)
 	data.Origin.Scheme = types.StringValue(string(result.Origin.Scheme))

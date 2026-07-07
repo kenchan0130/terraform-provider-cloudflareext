@@ -3,6 +3,7 @@ package secret
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cloudflare/cloudflare-go/v7/option"
@@ -144,6 +145,61 @@ func (r *secretResource) applyWriteOnlyAttributes(data, config *model) {
 	data.ValueWO = config.ValueWO
 }
 
+// scopeKey normalizes a scope value so that hyphenated and underscored forms
+// (e.g. "ai-gateway" vs "ai_gateway") are treated as equivalent. Cloudflare's
+// API can echo back scopes in either form, which otherwise causes spurious
+// "inconsistent result after apply" errors or permanent diffs.
+func scopeKey(scope string) string {
+	return strings.ReplaceAll(scope, "-", "_")
+}
+
+// reconcileScopes keeps provider state consistent with the plan when the
+// Cloudflare API echoes back scopes that only differ in formatting or order.
+//
+// If the API scopes and the known/planned scopes are equal as a multiset after
+// normalizing hyphen/underscore differences, the known scopes are returned
+// unchanged, preserving the configuration's spelling and order. Otherwise
+// (genuine remote drift) the API scopes are returned, though any element
+// equivalent to a known scope still adopts the known scope's spelling.
+func reconcileScopes(knownScopes, apiScopes []string) []string {
+	remainingByKey := make(map[string][]string, len(knownScopes))
+	for _, s := range knownScopes {
+		key := scopeKey(s)
+		remainingByKey[key] = append(remainingByKey[key], s)
+	}
+
+	if len(knownScopes) == len(apiScopes) {
+		counts := make(map[string]int, len(remainingByKey))
+		for key, queue := range remainingByKey {
+			counts[key] = len(queue)
+		}
+		sameSet := true
+		for _, s := range apiScopes {
+			key := scopeKey(s)
+			if counts[key] == 0 {
+				sameSet = false
+				break
+			}
+			counts[key]--
+		}
+		if sameSet {
+			return knownScopes
+		}
+	}
+
+	reconciled := make([]string, len(apiScopes))
+	for i, s := range apiScopes {
+		key := scopeKey(s)
+		if queue := remainingByKey[key]; len(queue) > 0 {
+			reconciled[i] = queue[0]
+			remainingByKey[key] = queue[1:]
+			continue
+		}
+		reconciled[i] = s
+	}
+	return reconciled
+}
+
 func (r *secretResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data model
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
@@ -199,9 +255,19 @@ func (r *secretResource) Create(ctx context.Context, req resource.CreateRequest,
 	data.Name = types.StringValue(secret.Name)
 	data.Status = types.StringValue(string(secret.Status))
 	data.StoreID = types.StringValue(secret.StoreID)
+	// If the API omits the comment and none was planned, keep it null so that
+	// the stored state stays consistent with the plan.
 	if secret.Comment != "" {
 		data.Comment = types.StringValue(secret.Comment)
+	} else if data.Comment.IsNull() || data.Comment.IsUnknown() {
+		data.Comment = types.StringNull()
 	}
+	scopesList, scopesDiags := types.ListValueFrom(ctx, types.StringType, reconcileScopes(scopes, secret.Scopes))
+	resp.Diagnostics.Append(scopesDiags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	data.Scopes = scopesList
 	data.Created = types.StringValue(secret.Created.Format(time.RFC3339Nano))
 	data.Modified = types.StringValue(secret.Modified.Format(time.RFC3339Nano))
 
@@ -221,6 +287,10 @@ func (r *secretResource) Read(ctx context.Context, req resource.ReadRequest, res
 		storeSecretGetParams(r.client.AccountID),
 	)
 	if err != nil {
+		if shared.IsNotFoundError(err) {
+			resp.State.RemoveResource(ctx)
+			return
+		}
 		resp.Diagnostics.AddError("Failed to read secret", err.Error())
 		return
 	}
@@ -229,9 +299,23 @@ func (r *secretResource) Read(ctx context.Context, req resource.ReadRequest, res
 	data.Name = types.StringValue(result.Name)
 	data.Status = types.StringValue(string(result.Status))
 	data.StoreID = types.StringValue(result.StoreID)
+	// Reflect the remote comment as-is so drift (including removal) is detected.
 	if result.Comment != "" {
 		data.Comment = types.StringValue(result.Comment)
+	} else {
+		data.Comment = types.StringNull()
 	}
+	var priorScopes []string
+	resp.Diagnostics.Append(data.Scopes.ElementsAs(ctx, &priorScopes, false)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	scopesList, scopesDiags := types.ListValueFrom(ctx, types.StringType, reconcileScopes(priorScopes, result.Scopes))
+	resp.Diagnostics.Append(scopesDiags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	data.Scopes = scopesList
 	data.Created = types.StringValue(result.Created.Format(time.RFC3339Nano))
 	data.Modified = types.StringValue(result.Modified.Format(time.RFC3339Nano))
 
@@ -265,6 +349,12 @@ func (r *secretResource) Update(ctx context.Context, req resource.UpdateRequest,
 	shared.SetParamField(&params.Scopes, scopes)
 	if !data.Comment.IsNull() && !data.Comment.IsUnknown() {
 		shared.SetParamField(&params.Comment, data.Comment.ValueString())
+	} else {
+		// The Secrets Store secret Edit API is a PATCH: omitted fields keep
+		// their existing value. When the plan's comment is null (removed from
+		// config), explicitly send an empty string to clear the remote
+		// comment rather than leaving the stale value in place.
+		shared.SetParamField(&params.Comment, "")
 	}
 
 	result, err := r.client.SecretsStore.Stores.Secrets.Edit(ctx,
@@ -282,9 +372,19 @@ func (r *secretResource) Update(ctx context.Context, req resource.UpdateRequest,
 	data.Name = types.StringValue(result.Name)
 	data.Status = types.StringValue(string(result.Status))
 	data.StoreID = types.StringValue(result.StoreID)
+	// If the API omits the comment and none was planned, keep it null so that
+	// the stored state stays consistent with the plan.
 	if result.Comment != "" {
 		data.Comment = types.StringValue(result.Comment)
+	} else if data.Comment.IsNull() || data.Comment.IsUnknown() {
+		data.Comment = types.StringNull()
 	}
+	scopesList, scopesDiags := types.ListValueFrom(ctx, types.StringType, reconcileScopes(scopes, result.Scopes))
+	resp.Diagnostics.Append(scopesDiags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	data.Scopes = scopesList
 	data.Created = types.StringValue(result.Created.Format(time.RFC3339Nano))
 	data.Modified = types.StringValue(result.Modified.Format(time.RFC3339Nano))
 

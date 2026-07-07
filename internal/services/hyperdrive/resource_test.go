@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/jarcoal/httpmock"
 	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/provider/shared"
 	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/testutil"
@@ -235,6 +236,56 @@ resource "cloudflareext_hyperdrive_config" "test" {
 }
 `),
 				Check: testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "name", "my-hyperdrive-updated"),
+			},
+		},
+	})
+}
+
+func TestUnitHyperdriveConfig_ReadNotFoundRemovesResource(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	setupHyperdriveMock()
+
+	config := testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "my-hyperdrive"
+  origin = {
+    host     = "db.example.com"
+    database = "mydb"
+    user     = "dbuser"
+    password_wo         = "dbpass"
+    password_wo_version = "1"
+  }
+}
+`)
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: config,
+			},
+			{
+				PreConfig: func() {
+					// Simulate an out-of-band deletion: the config no longer exists.
+					httpmock.RegisterResponder(http.MethodGet,
+						"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-test-id-001",
+						httpmock.NewJsonResponderOrPanic(404, shared.CloudflareResponse[json.RawMessage]{
+							Success: false,
+							Errors: []shared.CloudflareError{
+								{Code: 10007, Message: "hyperdrive config not found"},
+							},
+						}),
+					)
+				},
+				RefreshState:       true,
+				ExpectNonEmptyPlan: true,
+				RefreshPlanChecks: resource.RefreshPlanChecks{
+					PostRefresh: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("cloudflareext_hyperdrive_config.test", plancheck.ResourceActionCreate),
+					},
+				},
 			},
 		},
 	})
@@ -472,6 +523,125 @@ resource "cloudflareext_hyperdrive_config" "test" {
 					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "caching.disabled", "false"),
 					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "caching.max_age", "60"),
 					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "caching.stale_while_revalidate", "15"),
+				),
+			},
+		},
+	})
+}
+
+// apiHyperdriveAccessOriginResponse represents the origin object in a Hyperdrive API
+// response for an access-protected origin (behind a Cloudflare Tunnel). Per the
+// Cloudflare OpenAPI schema, access-protected origins have no `port` field in
+// either the request or the response.
+type apiHyperdriveAccessOriginResponse struct {
+	Host           string `json:"host"`
+	Database       string `json:"database"`
+	User           string `json:"user"`
+	Scheme         string `json:"scheme"`
+	AccessClientID string `json:"access_client_id"`
+}
+
+// apiHyperdriveAccessResponse matches the Cloudflare Hyperdrive API response format
+// for an access-protected origin.
+type apiHyperdriveAccessResponse struct {
+	ID                    string                            `json:"id"`
+	Name                  string                            `json:"name"`
+	Origin                apiHyperdriveAccessOriginResponse `json:"origin"`
+	Caching               apiHyperdriveCachingResponse      `json:"caching"`
+	CreatedOn             string                            `json:"created_on"`
+	ModifiedOn            string                            `json:"modified_on"`
+	OriginConnectionLimit int                               `json:"origin_connection_limit"`
+}
+
+func TestUnitHyperdriveConfig_AccessProtectedOriginNoPort(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	newAccessResponse := func(id, name string, origin apiHyperdriveAccessOriginResponse) apiHyperdriveAccessResponse {
+		return apiHyperdriveAccessResponse{
+			ID:     id,
+			Name:   name,
+			Origin: origin,
+			Caching: apiHyperdriveCachingResponse{
+				Disabled:             false,
+				MaxAge:               60,
+				StaleWhileRevalidate: 15,
+			},
+			CreatedOn:             "2025-01-01T00:00:00Z",
+			ModifiedOn:            "2025-01-01T00:00:00Z",
+			OriginConnectionLimit: 60,
+		}
+	}
+
+	httpmock.RegisterResponder(http.MethodPost,
+		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs",
+		func(req *http.Request) (*http.Response, error) {
+			var body map[string]any
+			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+				return httpmock.NewStringResponse(400, ""), nil
+			}
+			origin, _ := body["origin"].(map[string]any)
+			resp := shared.CloudflareResponse[apiHyperdriveAccessResponse]{
+				Success: true,
+				Result: newAccessResponse("hd-access-001", body["name"].(string), apiHyperdriveAccessOriginResponse{
+					Host:           origin["host"].(string),
+					Database:       origin["database"].(string),
+					User:           origin["user"].(string),
+					Scheme:         origin["scheme"].(string),
+					AccessClientID: origin["access_client_id"].(string),
+				}),
+			}
+			return httpmock.NewJsonResponse(200, resp)
+		},
+	)
+
+	httpmock.RegisterResponder(http.MethodGet,
+		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-access-001",
+		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveAccessResponse]{
+			Success: true,
+			Result: newAccessResponse("hd-access-001", "tunnel-hyperdrive", apiHyperdriveAccessOriginResponse{
+				Host:           "db.internal.example.com",
+				Database:       "mydb",
+				User:           "dbuser",
+				Scheme:         "postgresql",
+				AccessClientID: "client-id",
+			}),
+		}),
+	)
+
+	httpmock.RegisterResponder(http.MethodDelete,
+		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-access-001",
+		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[any]{
+			Success: true,
+		}),
+	)
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "tunnel-hyperdrive"
+  origin = {
+    host                    = "db.internal.example.com"
+    database                = "mydb"
+    user                    = "dbuser"
+    password_wo             = "dbpass"
+    password_wo_version     = "1"
+    access_client_id        = "client-id"
+    access_client_secret_wo = "client-secret"
+    access_client_secret_wo_version = "1"
+  }
+}
+`),
+				// Applying must succeed (no "inconsistent result after apply" error)
+				// even though the API response omits `origin.port` entirely, and the
+				// schema default of 5432 should be reflected in state.
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "id", "hd-access-001"),
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "origin.port", "5432"),
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "origin.access_client_id", "client-id"),
 				),
 			},
 		},

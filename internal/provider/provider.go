@@ -86,6 +86,43 @@ func (p *CloudflareExtProvider) Configure(_ context.Context, req provider.Config
 		return
 	}
 
+	if config.APIToken.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("api_token"),
+			"Unknown Cloudflare API Token",
+			"The provider cannot be configured because the `api_token` attribute value is unknown. "+
+				"This usually means it depends on another resource that hasn't been applied yet. "+
+				"Either apply that resource first, or set the value statically, "+
+				"or set the `CLOUDFLARE_API_TOKEN` environment variable.",
+		)
+	}
+
+	if config.AccountID.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("account_id"),
+			"Unknown Cloudflare Account ID",
+			"The provider cannot be configured because the `account_id` attribute value is unknown. "+
+				"This usually means it depends on another resource that hasn't been applied yet. "+
+				"Either apply that resource first, or set the value statically, "+
+				"or set the `CLOUDFLARE_ACCOUNT_ID` environment variable.",
+		)
+	}
+
+	if config.BaseURL.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("base_url"),
+			"Unknown Cloudflare API Base URL",
+			"The provider cannot be configured because the `base_url` attribute value is unknown. "+
+				"This usually means it depends on another resource that hasn't been applied yet. "+
+				"Either apply that resource first, or set the value statically, "+
+				"or set the `CLOUDFLARE_API_BASE_URL` environment variable.",
+		)
+	}
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	apiToken := os.Getenv("CLOUDFLARE_API_TOKEN")
 	if !config.APIToken.IsNull() {
 		apiToken = config.APIToken.ValueString()
