@@ -437,6 +437,9 @@ func (r *destinationResource) Delete(ctx context.Context, req resource.DeleteReq
 	}
 
 	if err := doRequestNoBody(ctx, r.client, http.MethodDelete, destinationSlugPath(r.client, data.Slug.ValueString()), nil); err != nil {
+		if shared.IsNotFoundError(err) {
+			return
+		}
 		resp.Diagnostics.AddError("Failed to delete Workers Observability destination", err.Error())
 		return
 	}

@@ -437,6 +437,9 @@ func (r *configResource) Delete(ctx context.Context, req resource.DeleteRequest,
 	shared.SetParamField(&params.AccountID, r.client.AccountID)
 	_, err := r.client.Hyperdrive.Configs.Delete(ctx, data.ID.ValueString(), params)
 	if err != nil {
+		if shared.IsNotFoundError(err) {
+			return
+		}
 		resp.Diagnostics.AddError("Failed to delete Hyperdrive config", err.Error())
 		return
 	}
@@ -468,8 +471,14 @@ func (r *configResource) mapResponseToModel(result *hyperdrive.Hyperdrive, data 
 	data.Origin.Database = types.StringValue(result.Origin.Database)
 	data.Origin.User = types.StringValue(result.Origin.User)
 	data.Origin.Scheme = types.StringValue(string(result.Origin.Scheme))
+	// Reflect access_client_id as-is (including its absence) so that drift
+	// from an access-protected origin being switched to a public origin is
+	// detected. access_client_secret/access_client_secret_wo are write-only
+	// and never returned by the API, so they are intentionally left untouched.
 	if result.Origin.AccessClientID != "" {
 		data.Origin.AccessClientID = types.StringValue(result.Origin.AccessClientID)
+	} else {
+		data.Origin.AccessClientID = types.StringNull()
 	}
 
 	if data.Caching != nil {
@@ -478,22 +487,49 @@ func (r *configResource) mapResponseToModel(result *hyperdrive.Hyperdrive, data 
 		data.Caching.StaleWhileRevalidate = types.Int64Value(result.Caching.StaleWhileRevalidate)
 	}
 
-	if result.MTLS.CACertificateID != "" || result.MTLS.MTLSCertificateID != "" || result.MTLS.Sslmode != "" {
-		if data.MTLS == nil {
-			data.MTLS = &mtlsModel{}
-		}
-		if result.MTLS.CACertificateID != "" {
-			data.MTLS.CACertificateID = types.StringValue(result.MTLS.CACertificateID)
-		}
-		if result.MTLS.MTLSCertificateID != "" {
-			data.MTLS.MTLSCertificateID = types.StringValue(result.MTLS.MTLSCertificateID)
-		}
-		if result.MTLS.Sslmode != "" {
-			data.MTLS.SSLMode = types.StringValue(result.MTLS.Sslmode)
-		}
-	}
+	mapMTLSResponseToModel(&result.MTLS, data)
 
 	if result.OriginConnectionLimit > 0 {
 		data.OriginConnectionLimit = types.Int64Value(result.OriginConnectionLimit)
 	}
+}
+
+// mapMTLSResponseToModel reflects the API's mtls response onto data.MTLS.
+func mapMTLSResponseToModel(mtls *hyperdrive.HyperdriveMTLS, data *configModel) {
+	if mtls.CACertificateID != "" || mtls.MTLSCertificateID != "" || mtls.Sslmode != "" {
+		// The API reports mtls configuration: reflect it faithfully so drift
+		// (including fields that were cleared remotely) is detected.
+		if data.MTLS == nil {
+			data.MTLS = &mtlsModel{}
+		}
+		if mtls.CACertificateID != "" {
+			data.MTLS.CACertificateID = types.StringValue(mtls.CACertificateID)
+		} else {
+			data.MTLS.CACertificateID = types.StringNull()
+		}
+		if mtls.MTLSCertificateID != "" {
+			data.MTLS.MTLSCertificateID = types.StringValue(mtls.MTLSCertificateID)
+		} else {
+			data.MTLS.MTLSCertificateID = types.StringNull()
+		}
+		if mtls.Sslmode != "" {
+			data.MTLS.SSLMode = types.StringValue(mtls.Sslmode)
+		} else {
+			data.MTLS.SSLMode = types.StringNull()
+		}
+		return
+	}
+
+	if data.MTLS != nil && data.MTLS.CACertificateID.IsNull() && data.MTLS.MTLSCertificateID.IsNull() && data.MTLS.SSLMode.IsNull() {
+		// The plan/state has an explicit but empty mtls block (`mtls = {}`).
+		// Keep it as-is rather than nulling it out, otherwise Terraform would
+		// see an "inconsistent result after apply" error when the plan
+		// expects a non-null (but all-null-fields) mtls object.
+		return
+	}
+
+	// The API reports no mtls configuration: clear it so that mtls being
+	// removed remotely is detected as drift instead of leaving stale
+	// values in state.
+	data.MTLS = nil
 }
