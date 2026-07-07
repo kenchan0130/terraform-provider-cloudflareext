@@ -3,6 +3,7 @@ package secret
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cloudflare/cloudflare-go/v7/option"
@@ -144,6 +145,61 @@ func (r *secretResource) applyWriteOnlyAttributes(data, config *model) {
 	data.ValueWO = config.ValueWO
 }
 
+// scopeKey normalizes a scope value so that hyphenated and underscored forms
+// (e.g. "ai-gateway" vs "ai_gateway") are treated as equivalent. Cloudflare's
+// API can echo back scopes in either form, which otherwise causes spurious
+// "inconsistent result after apply" errors or permanent diffs.
+func scopeKey(scope string) string {
+	return strings.ReplaceAll(scope, "-", "_")
+}
+
+// reconcileScopes keeps provider state consistent with the plan when the
+// Cloudflare API echoes back scopes that only differ in formatting or order.
+//
+// If the API scopes and the known/planned scopes are equal as a multiset after
+// normalizing hyphen/underscore differences, the known scopes are returned
+// unchanged, preserving the configuration's spelling and order. Otherwise
+// (genuine remote drift) the API scopes are returned, though any element
+// equivalent to a known scope still adopts the known scope's spelling.
+func reconcileScopes(knownScopes, apiScopes []string) []string {
+	remainingByKey := make(map[string][]string, len(knownScopes))
+	for _, s := range knownScopes {
+		key := scopeKey(s)
+		remainingByKey[key] = append(remainingByKey[key], s)
+	}
+
+	if len(knownScopes) == len(apiScopes) {
+		counts := make(map[string]int, len(remainingByKey))
+		for key, queue := range remainingByKey {
+			counts[key] = len(queue)
+		}
+		sameSet := true
+		for _, s := range apiScopes {
+			key := scopeKey(s)
+			if counts[key] == 0 {
+				sameSet = false
+				break
+			}
+			counts[key]--
+		}
+		if sameSet {
+			return knownScopes
+		}
+	}
+
+	reconciled := make([]string, len(apiScopes))
+	for i, s := range apiScopes {
+		key := scopeKey(s)
+		if queue := remainingByKey[key]; len(queue) > 0 {
+			reconciled[i] = queue[0]
+			remainingByKey[key] = queue[1:]
+			continue
+		}
+		reconciled[i] = s
+	}
+	return reconciled
+}
+
 func (r *secretResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data model
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
@@ -206,7 +262,7 @@ func (r *secretResource) Create(ctx context.Context, req resource.CreateRequest,
 	} else if data.Comment.IsNull() || data.Comment.IsUnknown() {
 		data.Comment = types.StringNull()
 	}
-	scopesList, scopesDiags := types.ListValueFrom(ctx, types.StringType, secret.Scopes)
+	scopesList, scopesDiags := types.ListValueFrom(ctx, types.StringType, reconcileScopes(scopes, secret.Scopes))
 	resp.Diagnostics.Append(scopesDiags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -249,7 +305,12 @@ func (r *secretResource) Read(ctx context.Context, req resource.ReadRequest, res
 	} else {
 		data.Comment = types.StringNull()
 	}
-	scopesList, scopesDiags := types.ListValueFrom(ctx, types.StringType, result.Scopes)
+	var priorScopes []string
+	resp.Diagnostics.Append(data.Scopes.ElementsAs(ctx, &priorScopes, false)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	scopesList, scopesDiags := types.ListValueFrom(ctx, types.StringType, reconcileScopes(priorScopes, result.Scopes))
 	resp.Diagnostics.Append(scopesDiags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -318,7 +379,7 @@ func (r *secretResource) Update(ctx context.Context, req resource.UpdateRequest,
 	} else if data.Comment.IsNull() || data.Comment.IsUnknown() {
 		data.Comment = types.StringNull()
 	}
-	scopesList, scopesDiags := types.ListValueFrom(ctx, types.StringType, result.Scopes)
+	scopesList, scopesDiags := types.ListValueFrom(ctx, types.StringType, reconcileScopes(scopes, result.Scopes))
 	resp.Diagnostics.Append(scopesDiags...)
 	if resp.Diagnostics.HasError() {
 		return

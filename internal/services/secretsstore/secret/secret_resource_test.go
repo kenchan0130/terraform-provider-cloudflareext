@@ -284,6 +284,122 @@ resource "cloudflareext_secrets_store_secret" "test" {
 	})
 }
 
+// TestUnitSecretsStoreSecret_ScopeHyphenUnderscoreEquivalence verifies that when
+// the Cloudflare API echoes back scopes using hyphens (e.g. "ai-gateway")
+// while the configuration uses the documented underscore form ("ai_gateway"),
+// and additionally returns them in a different order than the configuration,
+// the provider treats them as equivalent: Create succeeds without a
+// "Provider produced inconsistent result after apply" error, state keeps the
+// configuration's spelling and order, and a subsequent refresh produces no diff.
+func TestUnitSecretsStoreSecret_ScopeHyphenUnderscoreEquivalence(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	// Reversed order and hyphenated spelling compared to the configuration's
+	// scopes = ["workers", "ai_gateway"].
+	currentScopes := []string{"ai-gateway", "workers"}
+
+	// POST echoes back the hyphenated form regardless of what was requested,
+	// simulating an API that normalizes scopes to hyphenated spelling.
+	httpmock.RegisterResponder(http.MethodPost,
+		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/secrets_store/stores/store-001/secrets",
+		func(req *http.Request) (*http.Response, error) {
+			var body []testSecretCreateRequest
+			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+				return httpmock.NewStringResponse(400, `{"success":false,"errors":[{"code":400,"message":"invalid request"}]}`), nil
+			}
+			if len(body) == 0 {
+				return httpmock.NewStringResponse(400, `{"success":false,"errors":[{"code":400,"message":"empty request"}]}`), nil
+			}
+			resp := shared.CloudflareResponse[[]testSecretResponse]{
+				Success: true,
+				Result: []testSecretResponse{
+					{
+						ID:       "secret-001",
+						Name:     body[0].Name,
+						Status:   "active",
+						StoreID:  "store-001",
+						Comment:  "test secret",
+						Scopes:   currentScopes,
+						Created:  "2025-01-01T00:00:00Z",
+						Modified: "2025-01-01T00:00:00Z",
+					},
+				},
+			}
+			return httpmock.NewJsonResponse(200, resp)
+		},
+	)
+
+	httpmock.RegisterResponder(http.MethodGet,
+		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/secrets_store/stores/store-001/secrets/secret-001",
+		func(_ *http.Request) (*http.Response, error) {
+			return httpmock.NewJsonResponse(200, shared.CloudflareResponse[testSecretResponse]{
+				Success: true,
+				Result: testSecretResponse{
+					ID:       "secret-001",
+					Name:     "MY_SECRET",
+					Status:   "active",
+					StoreID:  "store-001",
+					Comment:  "test secret",
+					Scopes:   currentScopes,
+					Created:  "2025-01-01T00:00:00Z",
+					Modified: "2025-01-01T00:00:00Z",
+				},
+			})
+		},
+	)
+
+	httpmock.RegisterResponder(http.MethodDelete,
+		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/secrets_store/stores/store-001/secrets/secret-001",
+		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[testSecretResponse]{
+			Success: true,
+			Result: testSecretResponse{
+				ID:       "secret-001",
+				Name:     "MY_SECRET",
+				Status:   "active",
+				StoreID:  "store-001",
+				Created:  "2025-01-01T00:00:00Z",
+				Modified: "2025-01-01T00:00:00Z",
+			},
+		}),
+	)
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_secrets_store_secret" "test" {
+  store_id        = "store-001"
+  name            = "MY_SECRET"
+  value_wo        = "my-secret-value"
+  value_wo_version = "1"
+  comment         = "test secret"
+  scopes          = ["workers", "ai_gateway"]
+}
+`),
+				// Create must succeed (no "inconsistent result after apply") and
+				// state must retain the configuration's underscore spelling and order.
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "scopes.#", "2"),
+					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "scopes.0", "workers"),
+					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "scopes.1", "ai_gateway"),
+				),
+			},
+			{
+				// A refresh-only plan must not detect any drift even though the
+				// API keeps echoing the hyphenated form.
+				RefreshState: true,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "scopes.#", "2"),
+					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "scopes.0", "workers"),
+					testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "scopes.1", "ai_gateway"),
+				),
+			},
+		},
+	})
+}
+
 func TestUnitSecretsStoreSecret_ReadNotFoundRemovesResource(t *testing.T) {
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()
