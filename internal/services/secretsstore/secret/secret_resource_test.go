@@ -189,6 +189,44 @@ resource "cloudflareext_secrets_store_secret" "test" {
 	})
 }
 
+func TestUnitSecretsStoreSecret_DeleteNotFoundSucceeds(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	setupSecretMock()
+
+	// Simulate the secret already being deleted out-of-band: the delete
+	// endpoint now returns 404. Destroy must still succeed.
+	httpmock.RegisterResponder(http.MethodDelete,
+		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/secrets_store/stores/store-001/secrets/secret-001",
+		httpmock.NewJsonResponderOrPanic(404, shared.CloudflareResponse[json.RawMessage]{
+			Success: false,
+			Errors: []shared.CloudflareError{
+				{Code: 10007, Message: "secret not found"},
+			},
+		}),
+	)
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_secrets_store_secret" "test" {
+  store_id        = "store-001"
+  name            = "MY_SECRET"
+  value_wo        = "my-secret-value"
+  value_wo_version = "1"
+  comment         = "test secret"
+  scopes          = ["workers"]
+}
+`),
+				Check: testutil.CheckResourceAttr("cloudflareext_secrets_store_secret.test", "id", "secret-001"),
+			},
+		},
+	})
+}
+
 func TestUnitSecretsStoreSecret_Update(t *testing.T) {
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()

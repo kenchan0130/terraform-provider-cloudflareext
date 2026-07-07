@@ -69,6 +69,42 @@ func setupScriptSecretMock() {
 	)
 }
 
+func TestUnitWorkersScriptSecret_DeleteNotFoundSucceeds(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	setupScriptSecretMock()
+
+	// Simulate the secret already being deleted out-of-band: the delete
+	// endpoint now returns 404. Destroy must still succeed.
+	httpmock.RegisterResponder(http.MethodDelete,
+		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/workers/scripts/my-worker/secrets/MY_SECRET",
+		httpmock.NewJsonResponderOrPanic(404, shared.CloudflareResponse[json.RawMessage]{
+			Success: false,
+			Errors: []shared.CloudflareError{
+				{Code: 10007, Message: "secret not found"},
+			},
+		}),
+	)
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_workers_script_secret" "test" {
+  script_name      = "my-worker"
+  name             = "MY_SECRET"
+  text_wo          = "my-secret-value"
+  text_wo_version  = "1"
+}
+`),
+				Check: testutil.CheckResourceAttr("cloudflareext_workers_script_secret.test", "name", "MY_SECRET"),
+			},
+		},
+	})
+}
+
 func TestUnitWorkersScriptSecret_Create(t *testing.T) {
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()

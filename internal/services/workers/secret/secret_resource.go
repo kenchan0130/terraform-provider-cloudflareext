@@ -235,6 +235,9 @@ func (r *secretResource) Delete(ctx context.Context, req resource.DeleteRequest,
 		scriptSecretDeleteParams(r.client.AccountID),
 	)
 	if err != nil {
+		if shared.IsNotFoundError(err) {
+			return
+		}
 		resp.Diagnostics.AddError("Failed to delete Workers script secret", err.Error())
 		return
 	}

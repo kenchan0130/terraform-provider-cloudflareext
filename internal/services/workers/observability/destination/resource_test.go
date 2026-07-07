@@ -257,6 +257,48 @@ resource "cloudflareext_workers_observability_destination" "test" {
 	})
 }
 
+func TestUnitWorkersObservabilityDestination_DeleteNotFoundSucceeds(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	setupDestinationMock()
+
+	baseURL := "https://api.cloudflare.example.com/client/v4/accounts/test-account-id/workers/observability/destinations"
+
+	// Simulate the destination already being deleted out-of-band: the delete
+	// endpoint now returns 404. Destroy must still succeed.
+	httpmock.RegisterResponder(http.MethodDelete, baseURL+"/grafana-traces",
+		httpmock.NewJsonResponderOrPanic(404, testDestinationEnvelope[json.RawMessage]{
+			Errors:  []map[string]string{{"message": "destination not found"}},
+			Success: false,
+		}),
+	)
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_workers_observability_destination" "test" {
+  name            = "grafana-traces"
+  enabled         = true
+  type            = "logpush"
+  url             = "https://otlp.example.com/v1/traces"
+  logpush_dataset = "opentelemetry-traces"
+
+  headers_wo = {
+    Authorization = "Basic secret"
+  }
+
+  headers_wo_version = "1"
+}
+`),
+				Check: testutil.CheckResourceAttr("cloudflareext_workers_observability_destination.test", "slug", "grafana-traces"),
+			},
+		},
+	})
+}
+
 func TestUnitWorkersObservabilityDestination_NormalizesLogpushDatasetToHyphen(t *testing.T) {
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()

@@ -41,6 +41,13 @@ type apiHyperdriveCachingResponse struct {
 	StaleWhileRevalidate int64 `json:"stale_while_revalidate"`
 }
 
+// apiHyperdriveMTLSResponse represents the mtls object in a Hyperdrive API response.
+type apiHyperdriveMTLSResponse struct {
+	CACertificateID   string `json:"ca_certificate_id"`
+	MTLSCertificateID string `json:"mtls_certificate_id"`
+	Sslmode           string `json:"sslmode"`
+}
+
 // apiHyperdriveResponse matches the Cloudflare Hyperdrive API response format.
 // See: https://developers.cloudflare.com/api/resources/hyperdrive/subresources/configs/
 type apiHyperdriveResponse struct {
@@ -48,6 +55,7 @@ type apiHyperdriveResponse struct {
 	Name                  string                       `json:"name"`
 	Origin                apiHyperdriveOriginResponse  `json:"origin"`
 	Caching               apiHyperdriveCachingResponse `json:"caching"`
+	MTLS                  apiHyperdriveMTLSResponse    `json:"mtls"`
 	CreatedOn             string                       `json:"created_on"`
 	ModifiedOn            string                       `json:"modified_on"`
 	OriginConnectionLimit int                          `json:"origin_connection_limit"`
@@ -286,6 +294,46 @@ resource "cloudflareext_hyperdrive_config" "test" {
 						plancheck.ExpectResourceAction("cloudflareext_hyperdrive_config.test", plancheck.ResourceActionCreate),
 					},
 				},
+			},
+		},
+	})
+}
+
+func TestUnitHyperdriveConfig_DeleteNotFoundSucceeds(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	setupHyperdriveMock()
+
+	// Simulate the config already being deleted out-of-band: the delete
+	// endpoint now returns 404. Destroy must still succeed.
+	httpmock.RegisterResponder(http.MethodDelete,
+		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-test-id-001",
+		httpmock.NewJsonResponderOrPanic(404, shared.CloudflareResponse[json.RawMessage]{
+			Success: false,
+			Errors: []shared.CloudflareError{
+				{Code: 10007, Message: "hyperdrive config not found"},
+			},
+		}),
+	)
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "my-hyperdrive"
+  origin = {
+    host     = "db.example.com"
+    database = "mydb"
+    user     = "dbuser"
+    password_wo         = "dbpass"
+    password_wo_version = "1"
+  }
+}
+`),
+				Check: testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "id", "hd-test-id-001"),
 			},
 		},
 	})
@@ -643,6 +691,292 @@ resource "cloudflareext_hyperdrive_config" "test" {
 					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "origin.port", "5432"),
 					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "origin.access_client_id", "client-id"),
 				),
+			},
+		},
+	})
+}
+
+func TestUnitHyperdriveConfig_AccessClientIDDriftDetected(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	newAccessResponse := func(id, name string, origin apiHyperdriveAccessOriginResponse) apiHyperdriveAccessResponse {
+		return apiHyperdriveAccessResponse{
+			ID:     id,
+			Name:   name,
+			Origin: origin,
+			Caching: apiHyperdriveCachingResponse{
+				Disabled:             false,
+				MaxAge:               60,
+				StaleWhileRevalidate: 15,
+			},
+			CreatedOn:             "2025-01-01T00:00:00Z",
+			ModifiedOn:            "2025-01-01T00:00:00Z",
+			OriginConnectionLimit: 60,
+		}
+	}
+
+	httpmock.RegisterResponder(http.MethodPost,
+		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs",
+		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveAccessResponse]{
+			Success: true,
+			Result: newAccessResponse("hd-drift-001", "tunnel-hyperdrive", apiHyperdriveAccessOriginResponse{
+				Host:           "db.internal.example.com",
+				Database:       "mydb",
+				User:           "dbuser",
+				Scheme:         "postgresql",
+				AccessClientID: "client-id",
+			}),
+		}),
+	)
+
+	httpmock.RegisterResponder(http.MethodGet,
+		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-drift-001",
+		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveAccessResponse]{
+			Success: true,
+			Result: newAccessResponse("hd-drift-001", "tunnel-hyperdrive", apiHyperdriveAccessOriginResponse{
+				Host:           "db.internal.example.com",
+				Database:       "mydb",
+				User:           "dbuser",
+				Scheme:         "postgresql",
+				AccessClientID: "client-id",
+			}),
+		}),
+	)
+
+	httpmock.RegisterResponder(http.MethodDelete,
+		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-drift-001",
+		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[any]{
+			Success: true,
+		}),
+	)
+
+	config := testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "tunnel-hyperdrive"
+  origin = {
+    host                    = "db.internal.example.com"
+    database                = "mydb"
+    user                    = "dbuser"
+    password_wo             = "dbpass"
+    password_wo_version     = "1"
+    access_client_id        = "client-id"
+    access_client_secret_wo = "client-secret"
+    access_client_secret_wo_version = "1"
+  }
+}
+`)
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: config,
+				Check:  testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "origin.access_client_id", "client-id"),
+			},
+			{
+				PreConfig: func() {
+					// Simulate the origin being switched from access-protected
+					// to public out-of-band: the response no longer includes
+					// access_client_id.
+					httpmock.RegisterResponder(http.MethodGet,
+						"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-drift-001",
+						httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveResponse]{
+							Success: true,
+							Result: newHyperdriveResponse("hd-drift-001", "tunnel-hyperdrive", apiHyperdriveOriginResponse{
+								Host:     "db.internal.example.com",
+								Port:     5432,
+								Database: "mydb",
+								User:     "dbuser",
+								Scheme:   "postgresql",
+							}),
+						}),
+					)
+				},
+				RefreshState:       true,
+				ExpectNonEmptyPlan: true,
+				RefreshPlanChecks: resource.RefreshPlanChecks{
+					PostRefresh: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("cloudflareext_hyperdrive_config.test", plancheck.ResourceActionUpdate),
+					},
+				},
+			},
+		},
+	})
+}
+
+func TestUnitHyperdriveConfig_MTLSDriftDetected(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	httpmock.RegisterResponder(http.MethodPost,
+		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs",
+		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveResponse]{
+			Success: true,
+			Result: func() apiHyperdriveResponse {
+				resp := newHyperdriveResponse("hd-mtls-001", "mtls-hyperdrive", apiHyperdriveOriginResponse{
+					Host:     "db.example.com",
+					Port:     5432,
+					Database: "mydb",
+					User:     "dbuser",
+					Scheme:   "postgresql",
+				})
+				resp.MTLS = apiHyperdriveMTLSResponse{
+					CACertificateID:   "ca-cert-1",
+					MTLSCertificateID: "mtls-cert-1",
+					Sslmode:           "verify-full",
+				}
+				return resp
+			}(),
+		}),
+	)
+
+	getMTLSResponder := func(mtls apiHyperdriveMTLSResponse) httpmock.Responder {
+		resp := newHyperdriveResponse("hd-mtls-001", "mtls-hyperdrive", apiHyperdriveOriginResponse{
+			Host:     "db.example.com",
+			Port:     5432,
+			Database: "mydb",
+			User:     "dbuser",
+			Scheme:   "postgresql",
+		})
+		resp.MTLS = mtls
+		return httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveResponse]{
+			Success: true,
+			Result:  resp,
+		})
+	}
+
+	httpmock.RegisterResponder(http.MethodGet,
+		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-mtls-001",
+		getMTLSResponder(apiHyperdriveMTLSResponse{
+			CACertificateID:   "ca-cert-1",
+			MTLSCertificateID: "mtls-cert-1",
+			Sslmode:           "verify-full",
+		}),
+	)
+
+	httpmock.RegisterResponder(http.MethodDelete,
+		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-mtls-001",
+		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[any]{
+			Success: true,
+		}),
+	)
+
+	config := testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "mtls-hyperdrive"
+  origin = {
+    host     = "db.example.com"
+    database = "mydb"
+    user     = "dbuser"
+    password_wo         = "dbpass"
+    password_wo_version = "1"
+  }
+  mtls = {
+    ca_certificate_id   = "ca-cert-1"
+    mtls_certificate_id = "mtls-cert-1"
+    sslmode             = "verify-full"
+  }
+}
+`)
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: config,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "mtls.ca_certificate_id", "ca-cert-1"),
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "mtls.mtls_certificate_id", "mtls-cert-1"),
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "mtls.sslmode", "verify-full"),
+				),
+			},
+			{
+				PreConfig: func() {
+					// Simulate mtls being cleared out-of-band: the response no
+					// longer includes any mtls fields.
+					httpmock.RegisterResponder(http.MethodGet,
+						"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-mtls-001",
+						getMTLSResponder(apiHyperdriveMTLSResponse{}),
+					)
+				},
+				RefreshState:       true,
+				ExpectNonEmptyPlan: true,
+				RefreshPlanChecks: resource.RefreshPlanChecks{
+					PostRefresh: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("cloudflareext_hyperdrive_config.test", plancheck.ResourceActionUpdate),
+					},
+				},
+			},
+		},
+	})
+}
+
+func TestUnitHyperdriveConfig_MTLSEmptyBlockNoDrift(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	httpmock.RegisterResponder(http.MethodPost,
+		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs",
+		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveResponse]{
+			Success: true,
+			Result: newHyperdriveResponse("hd-mtls-002", "mtls-empty-hyperdrive", apiHyperdriveOriginResponse{
+				Host:     "db.example.com",
+				Port:     5432,
+				Database: "mydb",
+				User:     "dbuser",
+				Scheme:   "postgresql",
+			}),
+		}),
+	)
+
+	httpmock.RegisterResponder(http.MethodGet,
+		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-mtls-002",
+		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveResponse]{
+			Success: true,
+			Result: newHyperdriveResponse("hd-mtls-002", "mtls-empty-hyperdrive", apiHyperdriveOriginResponse{
+				Host:     "db.example.com",
+				Port:     5432,
+				Database: "mydb",
+				User:     "dbuser",
+				Scheme:   "postgresql",
+			}),
+		}),
+	)
+
+	httpmock.RegisterResponder(http.MethodDelete,
+		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-mtls-002",
+		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[any]{
+			Success: true,
+		}),
+	)
+
+	config := testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "mtls-empty-hyperdrive"
+  origin = {
+    host     = "db.example.com"
+    database = "mydb"
+    user     = "dbuser"
+    password_wo         = "dbpass"
+    password_wo_version = "1"
+  }
+  mtls = {}
+}
+`)
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: config,
+			},
+			{
+				// Refreshing (with a response that still omits mtls) must not
+				// produce a diff: the config's empty `mtls = {}` block should
+				// be preserved rather than nulled out.
+				RefreshState:       true,
+				ExpectNonEmptyPlan: false,
 			},
 		},
 	})

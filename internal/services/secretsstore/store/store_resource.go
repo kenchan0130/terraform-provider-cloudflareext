@@ -147,6 +147,9 @@ func (r *storeResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 	shared.SetParamField(&params.AccountID, r.client.AccountID)
 	_, err := r.client.SecretsStore.Stores.Delete(ctx, data.ID.ValueString(), params)
 	if err != nil {
+		if shared.IsNotFoundError(err) {
+			return
+		}
 		resp.Diagnostics.AddError("Failed to delete Secrets Store", err.Error())
 		return
 	}

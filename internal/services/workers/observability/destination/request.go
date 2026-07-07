@@ -12,6 +12,25 @@ import (
 	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/provider/shared"
 )
 
+// apiError represents a non-2xx response from the Workers Observability
+// destination API. It preserves the HTTP status code so callers can detect
+// specific conditions (e.g. 404 Not Found) via shared.IsNotFoundError,
+// without changing the error's string representation.
+type apiError struct {
+	StatusCode int
+	Status     string
+	Message    string
+}
+
+func (e *apiError) Error() string {
+	return fmt.Sprintf("%s: %s", e.Status, e.Message)
+}
+
+// HTTPStatusCode implements shared.HTTPStatusCoder.
+func (e *apiError) HTTPStatusCode() int {
+	return e.StatusCode
+}
+
 func doRequest[T any](ctx context.Context, client *shared.CloudflareClient, method, path string, body any) (*T, error) {
 	result, _, err := doRequestWithResultInfo[T](ctx, client, method, path, body)
 	return result, err
@@ -57,7 +76,11 @@ func doRequestWithResultInfo[T any](ctx context.Context, client *shared.Cloudfla
 		}
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices || !envelope.Success {
-		return nil, nil, fmt.Errorf("%s: %s", resp.Status, cloudflareErrorMessage(envelope.Errors))
+		return nil, nil, &apiError{
+			StatusCode: resp.StatusCode,
+			Status:     resp.Status,
+			Message:    cloudflareErrorMessage(envelope.Errors),
+		}
 	}
 
 	var result T
