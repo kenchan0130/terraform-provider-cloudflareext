@@ -199,9 +199,19 @@ func (r *secretResource) Create(ctx context.Context, req resource.CreateRequest,
 	data.Name = types.StringValue(secret.Name)
 	data.Status = types.StringValue(string(secret.Status))
 	data.StoreID = types.StringValue(secret.StoreID)
+	// If the API omits the comment and none was planned, keep it null so that
+	// the stored state stays consistent with the plan.
 	if secret.Comment != "" {
 		data.Comment = types.StringValue(secret.Comment)
+	} else if data.Comment.IsNull() || data.Comment.IsUnknown() {
+		data.Comment = types.StringNull()
 	}
+	scopesList, scopesDiags := types.ListValueFrom(ctx, types.StringType, secret.Scopes)
+	resp.Diagnostics.Append(scopesDiags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	data.Scopes = scopesList
 	data.Created = types.StringValue(secret.Created.Format(time.RFC3339Nano))
 	data.Modified = types.StringValue(secret.Modified.Format(time.RFC3339Nano))
 
@@ -221,6 +231,10 @@ func (r *secretResource) Read(ctx context.Context, req resource.ReadRequest, res
 		storeSecretGetParams(r.client.AccountID),
 	)
 	if err != nil {
+		if shared.IsNotFoundError(err) {
+			resp.State.RemoveResource(ctx)
+			return
+		}
 		resp.Diagnostics.AddError("Failed to read secret", err.Error())
 		return
 	}
@@ -229,9 +243,18 @@ func (r *secretResource) Read(ctx context.Context, req resource.ReadRequest, res
 	data.Name = types.StringValue(result.Name)
 	data.Status = types.StringValue(string(result.Status))
 	data.StoreID = types.StringValue(result.StoreID)
+	// Reflect the remote comment as-is so drift (including removal) is detected.
 	if result.Comment != "" {
 		data.Comment = types.StringValue(result.Comment)
+	} else {
+		data.Comment = types.StringNull()
 	}
+	scopesList, scopesDiags := types.ListValueFrom(ctx, types.StringType, result.Scopes)
+	resp.Diagnostics.Append(scopesDiags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	data.Scopes = scopesList
 	data.Created = types.StringValue(result.Created.Format(time.RFC3339Nano))
 	data.Modified = types.StringValue(result.Modified.Format(time.RFC3339Nano))
 
@@ -265,6 +288,12 @@ func (r *secretResource) Update(ctx context.Context, req resource.UpdateRequest,
 	shared.SetParamField(&params.Scopes, scopes)
 	if !data.Comment.IsNull() && !data.Comment.IsUnknown() {
 		shared.SetParamField(&params.Comment, data.Comment.ValueString())
+	} else {
+		// The Secrets Store secret Edit API is a PATCH: omitted fields keep
+		// their existing value. When the plan's comment is null (removed from
+		// config), explicitly send an empty string to clear the remote
+		// comment rather than leaving the stale value in place.
+		shared.SetParamField(&params.Comment, "")
 	}
 
 	result, err := r.client.SecretsStore.Stores.Secrets.Edit(ctx,
@@ -282,9 +311,19 @@ func (r *secretResource) Update(ctx context.Context, req resource.UpdateRequest,
 	data.Name = types.StringValue(result.Name)
 	data.Status = types.StringValue(string(result.Status))
 	data.StoreID = types.StringValue(result.StoreID)
+	// If the API omits the comment and none was planned, keep it null so that
+	// the stored state stays consistent with the plan.
 	if result.Comment != "" {
 		data.Comment = types.StringValue(result.Comment)
+	} else if data.Comment.IsNull() || data.Comment.IsUnknown() {
+		data.Comment = types.StringNull()
 	}
+	scopesList, scopesDiags := types.ListValueFrom(ctx, types.StringType, result.Scopes)
+	resp.Diagnostics.Append(scopesDiags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	data.Scopes = scopesList
 	data.Created = types.StringValue(result.Created.Format(time.RFC3339Nano))
 	data.Modified = types.StringValue(result.Modified.Format(time.RFC3339Nano))
 

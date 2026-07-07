@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/jarcoal/httpmock"
 	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/provider/shared"
 	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/testutil"
@@ -126,6 +127,50 @@ resource "cloudflareext_workers_script_secret" "test" {
 }
 `),
 				Check: testutil.CheckResourceAttr("cloudflareext_workers_script_secret.test", "text_wo_version", "2"),
+			},
+		},
+	})
+}
+
+func TestUnitWorkersScriptSecret_ReadNotFoundRemovesResource(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	setupScriptSecretMock()
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_workers_script_secret" "test" {
+  script_name      = "my-worker"
+  name             = "MY_SECRET"
+  text_wo          = "my-secret-value"
+  text_wo_version  = "1"
+}
+`),
+			},
+			{
+				PreConfig: func() {
+					// Simulate an out-of-band deletion: the secret no longer exists.
+					httpmock.RegisterResponder(http.MethodGet,
+						"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/workers/scripts/my-worker/secrets/MY_SECRET",
+						httpmock.NewJsonResponderOrPanic(404, shared.CloudflareResponse[json.RawMessage]{
+							Success: false,
+							Errors: []shared.CloudflareError{
+								{Code: 10007, Message: "secret not found"},
+							},
+						}),
+					)
+				},
+				RefreshState:       true,
+				ExpectNonEmptyPlan: true,
+				RefreshPlanChecks: resource.RefreshPlanChecks{
+					PostRefresh: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("cloudflareext_workers_script_secret.test", plancheck.ResourceActionCreate),
+					},
+				},
 			},
 		},
 	})
