@@ -7,7 +7,9 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/knownvalue"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
+	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
 	"github.com/jarcoal/httpmock"
 	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/provider/shared"
 	"github.com/kenchan0130/terraform-provider-cloudflareext/internal/testutil"
@@ -462,8 +464,15 @@ resource "cloudflareext_hyperdrive_config" "test" {
 				ImportState:                          true,
 				ImportStateVerify:                    true,
 				ImportStateVerifyIdentifierAttribute: "id",
-				// Import populates the remote caching configuration (issue #60);
-				// the pre-import state has no caching block because the config omits it.
+				// The pre-import state has caching == null: the config omits the
+				// `caching` block, and Create's mapResponseToModel guard
+				// (`data.Caching != nil`) leaves it unset so applied state matches
+				// the plan-preserved null (see preserveCachingStateWhenOmitted,
+				// issue #64). The post-import state has caching populated, because
+				// Read always reflects the API's caching object into state
+				// regardless of what the freshly-imported state started with
+				// (issue #60). These two are expected to differ, so caching can't
+				// be verified for equivalence here.
 				ImportStateVerifyIgnore: []string{"origin.password", "origin.password_wo", "origin.password_wo_version", "caching"},
 			},
 		},
@@ -1404,6 +1413,126 @@ resource "cloudflareext_hyperdrive_config" "test" {
 					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "caching.max_age", "60"),
 					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "caching.stale_while_revalidate", "15"),
 				),
+			},
+		},
+	})
+}
+
+// TestUnitHyperdriveConfig_ImportNoCachingBlockNoDriftNoReset reproduces
+// issue #64, live-verified against the Cloudflare API: importing a Hyperdrive
+// config whose config omits the `caching` block (but whose remote caching is
+// disabled) must populate `caching` into state on import (issue #60), *and*
+// the subsequent plan for the caching-less config must not show a
+// `caching = { disabled = true } -> null` diff. Applying that diff would send
+// a full-replace PUT without `caching` and the API would silently reset
+// remote caching to defaults.
+//
+// Step 2 asserts on the `caching.disabled` plan value specifically rather
+// than requiring a literal empty plan (ExpectNonEmptyPlan: false). The first
+// step is import-only (no prior apply), so origin.password_wo_version — a
+// plain Optional trigger attribute, not itself write-only — is genuinely
+// absent from the freshly-imported state (only Read-populated fields survive
+// import) while the unchanged config still sets it to "1"; the resulting
+// diff is real, expected write-only/import behavior (any post-import plan
+// with a non-null password_wo_version shows it), and is unrelated to the
+// caching regression under test here.
+func TestUnitHyperdriveConfig_ImportNoCachingBlockNoDriftNoReset(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	setupHyperdriveCachingDisabledMock(t)
+
+	config := testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "my-hyperdrive"
+  origin = {
+    host     = "db.example.com"
+    database = "mydb"
+    user     = "dbuser"
+    password_wo         = "dbpass"
+    password_wo_version = "1"
+  }
+}
+`)
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config:             config,
+				ResourceName:       "cloudflareext_hyperdrive_config.test",
+				ImportState:        true,
+				ImportStateId:      "hd-test-id-001",
+				ImportStatePersist: true,
+				Check: testutil.CheckResourceAttr(
+					"cloudflareext_hyperdrive_config.test", "caching.disabled", "true",
+				),
+			},
+			{
+				Config:             config,
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: true,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PostApplyPostRefresh: []plancheck.PlanCheck{
+						plancheck.ExpectKnownValue(
+							"cloudflareext_hyperdrive_config.test",
+							tfjsonpath.New("caching").AtMapKey("disabled"),
+							knownvalue.Bool(true),
+						),
+					},
+				},
+			},
+		},
+	})
+}
+
+// TestUnitHyperdriveConfig_RemoveCachingBlockKeepsRemote encodes the #64 fix's
+// "omitted = preserved" semantics directly: creating with an explicit
+// `caching = { disabled = true }` block and then removing the block from
+// config must not plan any change, since the remote caching configuration is
+// left as-is when the block is omitted.
+func TestUnitHyperdriveConfig_RemoveCachingBlockKeepsRemote(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	setupHyperdriveCachingDisabledMock(t)
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "my-hyperdrive"
+  origin = {
+    host     = "db.example.com"
+    database = "mydb"
+    user     = "dbuser"
+    password_wo         = "dbpass"
+    password_wo_version = "1"
+  }
+  caching = {
+    disabled = true
+  }
+}
+`),
+				Check: testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "caching.disabled", "true"),
+			},
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "my-hyperdrive"
+  origin = {
+    host     = "db.example.com"
+    database = "mydb"
+    user     = "dbuser"
+    password_wo         = "dbpass"
+    password_wo_version = "1"
+  }
+}
+`),
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: false,
 			},
 		},
 	})
