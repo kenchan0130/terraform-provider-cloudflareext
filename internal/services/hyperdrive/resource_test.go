@@ -34,6 +34,29 @@ type apiHyperdriveOriginResponse struct {
 	Scheme   string `json:"scheme"`
 }
 
+const hyperdriveConfigsEndpoint = "https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs"
+
+var defaultHyperdriveOrigin = apiHyperdriveOriginResponse{
+	Host:     "db.example.com",
+	Port:     5432,
+	Database: "mydb",
+	User:     "dbuser",
+	Scheme:   "postgresql",
+}
+
+func hyperdriveConfigEndpoint(id string) string {
+	return hyperdriveConfigsEndpoint + "/" + id
+}
+
+func registerStandardDeleteResponder(id string) {
+	httpmock.RegisterResponder(http.MethodDelete,
+		hyperdriveConfigEndpoint(id),
+		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[any]{
+			Success: true,
+		}),
+	)
+}
+
 // apiHyperdriveCachingResponse represents the caching object in a Hyperdrive API response.
 type apiHyperdriveCachingResponse struct {
 	Disabled             bool  `json:"disabled"`
@@ -79,7 +102,7 @@ func newHyperdriveResponse(id, name string, origin apiHyperdriveOriginResponse) 
 
 func setupHyperdriveMock() {
 	httpmock.RegisterResponder(http.MethodPost,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs",
+		hyperdriveConfigsEndpoint,
 		func(req *http.Request) (*http.Response, error) {
 			var body apiHyperdriveCreateRequest
 			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
@@ -108,21 +131,15 @@ func setupHyperdriveMock() {
 	)
 
 	httpmock.RegisterResponder(http.MethodGet,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-test-id-001",
+		hyperdriveConfigEndpoint("hd-test-id-001"),
 		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveResponse]{
 			Success: true,
-			Result: newHyperdriveResponse("hd-test-id-001", "my-hyperdrive", apiHyperdriveOriginResponse{
-				Host:     "db.example.com",
-				Port:     5432,
-				Database: "mydb",
-				User:     "dbuser",
-				Scheme:   "postgresql",
-			}),
+			Result:  newHyperdriveResponse("hd-test-id-001", "my-hyperdrive", defaultHyperdriveOrigin),
 		}),
 	)
 
 	httpmock.RegisterResponder(http.MethodPut,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-test-id-001",
+		hyperdriveConfigEndpoint("hd-test-id-001"),
 		func(req *http.Request) (*http.Response, error) {
 			var body apiHyperdriveCreateRequest
 			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
@@ -142,12 +159,7 @@ func setupHyperdriveMock() {
 		},
 	)
 
-	httpmock.RegisterResponder(http.MethodDelete,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-test-id-001",
-		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[any]{
-			Success: true,
-		}),
-	)
+	registerStandardDeleteResponder("hd-test-id-001")
 }
 
 func TestUnitHyperdriveConfig_Create(t *testing.T) {
@@ -216,16 +228,10 @@ resource "cloudflareext_hyperdrive_config" "test" {
 				PreConfig: func() {
 					if !updatedGetRegistered {
 						httpmock.RegisterResponder(http.MethodGet,
-							"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-test-id-001",
+							hyperdriveConfigEndpoint("hd-test-id-001"),
 							httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveResponse]{
 								Success: true,
-								Result: newHyperdriveResponse("hd-test-id-001", "my-hyperdrive-updated", apiHyperdriveOriginResponse{
-									Host:     "db.example.com",
-									Port:     5432,
-									Database: "mydb",
-									User:     "dbuser",
-									Scheme:   "postgresql",
-								}),
+								Result:  newHyperdriveResponse("hd-test-id-001", "my-hyperdrive-updated", defaultHyperdriveOrigin),
 							}),
 						)
 						updatedGetRegistered = true
@@ -278,7 +284,7 @@ resource "cloudflareext_hyperdrive_config" "test" {
 				PreConfig: func() {
 					// Simulate an out-of-band deletion: the config no longer exists.
 					httpmock.RegisterResponder(http.MethodGet,
-						"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-test-id-001",
+						hyperdriveConfigEndpoint("hd-test-id-001"),
 						httpmock.NewJsonResponderOrPanic(404, shared.CloudflareResponse[json.RawMessage]{
 							Success: false,
 							Errors: []shared.CloudflareError{
@@ -308,7 +314,7 @@ func TestUnitHyperdriveConfig_DeleteNotFoundSucceeds(t *testing.T) {
 	// Simulate the config already being deleted out-of-band: the delete
 	// endpoint now returns 404. Destroy must still succeed.
 	httpmock.RegisterResponder(http.MethodDelete,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-test-id-001",
+		hyperdriveConfigEndpoint("hd-test-id-001"),
 		httpmock.NewJsonResponderOrPanic(404, shared.CloudflareResponse[json.RawMessage]{
 			Success: false,
 			Errors: []shared.CloudflareError{
@@ -473,7 +479,7 @@ func TestUnitHyperdriveConfig_CustomPort(t *testing.T) {
 	defer httpmock.DeactivateAndReset()
 
 	httpmock.RegisterResponder(http.MethodPost,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs",
+		hyperdriveConfigsEndpoint,
 		func(req *http.Request) (*http.Response, error) {
 			var body apiHyperdriveCreateRequest
 			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
@@ -493,7 +499,7 @@ func TestUnitHyperdriveConfig_CustomPort(t *testing.T) {
 	)
 
 	httpmock.RegisterResponder(http.MethodGet,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-test-id-002",
+		hyperdriveConfigEndpoint("hd-test-id-002"),
 		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveResponse]{
 			Success: true,
 			Result: newHyperdriveResponse("hd-test-id-002", "mysql-hyperdrive", apiHyperdriveOriginResponse{
@@ -506,12 +512,7 @@ func TestUnitHyperdriveConfig_CustomPort(t *testing.T) {
 		}),
 	)
 
-	httpmock.RegisterResponder(http.MethodDelete,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-test-id-002",
-		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[any]{
-			Success: true,
-		}),
-	)
+	registerStandardDeleteResponder("hd-test-id-002")
 
 	resource.UnitTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
@@ -622,7 +623,7 @@ func TestUnitHyperdriveConfig_AccessProtectedOriginNoPort(t *testing.T) {
 	}
 
 	httpmock.RegisterResponder(http.MethodPost,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs",
+		hyperdriveConfigsEndpoint,
 		func(req *http.Request) (*http.Response, error) {
 			var body map[string]any
 			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
@@ -644,7 +645,7 @@ func TestUnitHyperdriveConfig_AccessProtectedOriginNoPort(t *testing.T) {
 	)
 
 	httpmock.RegisterResponder(http.MethodGet,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-access-001",
+		hyperdriveConfigEndpoint("hd-access-001"),
 		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveAccessResponse]{
 			Success: true,
 			Result: newAccessResponse("hd-access-001", "tunnel-hyperdrive", apiHyperdriveAccessOriginResponse{
@@ -657,12 +658,7 @@ func TestUnitHyperdriveConfig_AccessProtectedOriginNoPort(t *testing.T) {
 		}),
 	)
 
-	httpmock.RegisterResponder(http.MethodDelete,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-access-001",
-		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[any]{
-			Success: true,
-		}),
-	)
+	registerStandardDeleteResponder("hd-access-001")
 
 	resource.UnitTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
@@ -717,7 +713,7 @@ func TestUnitHyperdriveConfig_AccessClientIDDriftDetected(t *testing.T) {
 	}
 
 	httpmock.RegisterResponder(http.MethodPost,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs",
+		hyperdriveConfigsEndpoint,
 		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveAccessResponse]{
 			Success: true,
 			Result: newAccessResponse("hd-drift-001", "tunnel-hyperdrive", apiHyperdriveAccessOriginResponse{
@@ -731,7 +727,7 @@ func TestUnitHyperdriveConfig_AccessClientIDDriftDetected(t *testing.T) {
 	)
 
 	httpmock.RegisterResponder(http.MethodGet,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-drift-001",
+		hyperdriveConfigEndpoint("hd-drift-001"),
 		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveAccessResponse]{
 			Success: true,
 			Result: newAccessResponse("hd-drift-001", "tunnel-hyperdrive", apiHyperdriveAccessOriginResponse{
@@ -744,12 +740,7 @@ func TestUnitHyperdriveConfig_AccessClientIDDriftDetected(t *testing.T) {
 		}),
 	)
 
-	httpmock.RegisterResponder(http.MethodDelete,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-drift-001",
-		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[any]{
-			Success: true,
-		}),
-	)
+	registerStandardDeleteResponder("hd-drift-001")
 
 	config := testutil.TestConfig(`
 resource "cloudflareext_hyperdrive_config" "test" {
@@ -780,7 +771,7 @@ resource "cloudflareext_hyperdrive_config" "test" {
 					// to public out-of-band: the response no longer includes
 					// access_client_id.
 					httpmock.RegisterResponder(http.MethodGet,
-						"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-drift-001",
+						hyperdriveConfigEndpoint("hd-drift-001"),
 						httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveResponse]{
 							Success: true,
 							Result: newHyperdriveResponse("hd-drift-001", "tunnel-hyperdrive", apiHyperdriveOriginResponse{
@@ -810,17 +801,11 @@ func TestUnitHyperdriveConfig_MTLSDriftDetected(t *testing.T) {
 	defer httpmock.DeactivateAndReset()
 
 	httpmock.RegisterResponder(http.MethodPost,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs",
+		hyperdriveConfigsEndpoint,
 		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveResponse]{
 			Success: true,
 			Result: func() apiHyperdriveResponse {
-				resp := newHyperdriveResponse("hd-mtls-001", "mtls-hyperdrive", apiHyperdriveOriginResponse{
-					Host:     "db.example.com",
-					Port:     5432,
-					Database: "mydb",
-					User:     "dbuser",
-					Scheme:   "postgresql",
-				})
+				resp := newHyperdriveResponse("hd-mtls-001", "mtls-hyperdrive", defaultHyperdriveOrigin)
 				resp.MTLS = apiHyperdriveMTLSResponse{
 					CACertificateID:   "ca-cert-1",
 					MTLSCertificateID: "mtls-cert-1",
@@ -832,13 +817,7 @@ func TestUnitHyperdriveConfig_MTLSDriftDetected(t *testing.T) {
 	)
 
 	getMTLSResponder := func(mtls apiHyperdriveMTLSResponse) httpmock.Responder {
-		resp := newHyperdriveResponse("hd-mtls-001", "mtls-hyperdrive", apiHyperdriveOriginResponse{
-			Host:     "db.example.com",
-			Port:     5432,
-			Database: "mydb",
-			User:     "dbuser",
-			Scheme:   "postgresql",
-		})
+		resp := newHyperdriveResponse("hd-mtls-001", "mtls-hyperdrive", defaultHyperdriveOrigin)
 		resp.MTLS = mtls
 		return httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveResponse]{
 			Success: true,
@@ -847,7 +826,7 @@ func TestUnitHyperdriveConfig_MTLSDriftDetected(t *testing.T) {
 	}
 
 	httpmock.RegisterResponder(http.MethodGet,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-mtls-001",
+		hyperdriveConfigEndpoint("hd-mtls-001"),
 		getMTLSResponder(apiHyperdriveMTLSResponse{
 			CACertificateID:   "ca-cert-1",
 			MTLSCertificateID: "mtls-cert-1",
@@ -855,12 +834,7 @@ func TestUnitHyperdriveConfig_MTLSDriftDetected(t *testing.T) {
 		}),
 	)
 
-	httpmock.RegisterResponder(http.MethodDelete,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-mtls-001",
-		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[any]{
-			Success: true,
-		}),
-	)
+	registerStandardDeleteResponder("hd-mtls-001")
 
 	config := testutil.TestConfig(`
 resource "cloudflareext_hyperdrive_config" "test" {
@@ -896,7 +870,7 @@ resource "cloudflareext_hyperdrive_config" "test" {
 					// Simulate mtls being cleared out-of-band: the response no
 					// longer includes any mtls fields.
 					httpmock.RegisterResponder(http.MethodGet,
-						"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-mtls-001",
+						hyperdriveConfigEndpoint("hd-mtls-001"),
 						getMTLSResponder(apiHyperdriveMTLSResponse{}),
 					)
 				},
@@ -917,39 +891,22 @@ func TestUnitHyperdriveConfig_MTLSEmptyBlockNoDrift(t *testing.T) {
 	defer httpmock.DeactivateAndReset()
 
 	httpmock.RegisterResponder(http.MethodPost,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs",
+		hyperdriveConfigsEndpoint,
 		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveResponse]{
 			Success: true,
-			Result: newHyperdriveResponse("hd-mtls-002", "mtls-empty-hyperdrive", apiHyperdriveOriginResponse{
-				Host:     "db.example.com",
-				Port:     5432,
-				Database: "mydb",
-				User:     "dbuser",
-				Scheme:   "postgresql",
-			}),
+			Result:  newHyperdriveResponse("hd-mtls-002", "mtls-empty-hyperdrive", defaultHyperdriveOrigin),
 		}),
 	)
 
 	httpmock.RegisterResponder(http.MethodGet,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-mtls-002",
+		hyperdriveConfigEndpoint("hd-mtls-002"),
 		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveResponse]{
 			Success: true,
-			Result: newHyperdriveResponse("hd-mtls-002", "mtls-empty-hyperdrive", apiHyperdriveOriginResponse{
-				Host:     "db.example.com",
-				Port:     5432,
-				Database: "mydb",
-				User:     "dbuser",
-				Scheme:   "postgresql",
-			}),
+			Result:  newHyperdriveResponse("hd-mtls-002", "mtls-empty-hyperdrive", defaultHyperdriveOrigin),
 		}),
 	)
 
-	httpmock.RegisterResponder(http.MethodDelete,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-mtls-002",
-		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[any]{
-			Success: true,
-		}),
-	)
+	registerStandardDeleteResponder("hd-mtls-002")
 
 	config := testutil.TestConfig(`
 resource "cloudflareext_hyperdrive_config" "test" {
@@ -987,7 +944,7 @@ func TestUnitHyperdriveConfig_APIError(t *testing.T) {
 	defer httpmock.DeactivateAndReset()
 
 	httpmock.RegisterResponder(http.MethodPost,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs",
+		hyperdriveConfigsEndpoint,
 		httpmock.NewJsonResponderOrPanic(403, shared.CloudflareResponse[json.RawMessage]{
 			Success: false,
 			Errors: []shared.CloudflareError{
@@ -1029,13 +986,7 @@ func setupHyperdriveCachingDisabledMock(t *testing.T) {
 	t.Helper()
 
 	disabledCachingResult := func(name string) apiHyperdriveResponse {
-		resp := newHyperdriveResponse("hd-test-id-001", name, apiHyperdriveOriginResponse{
-			Host:     "db.example.com",
-			Port:     5432,
-			Database: "mydb",
-			User:     "dbuser",
-			Scheme:   "postgresql",
-		})
+		resp := newHyperdriveResponse("hd-test-id-001", name, defaultHyperdriveOrigin)
 		resp.Caching = apiHyperdriveCachingResponse{Disabled: true}
 		return resp
 	}
@@ -1076,13 +1027,7 @@ func setupHyperdriveCachingDisabledMock(t *testing.T) {
 				Result:  current,
 			})
 		}
-		current = newHyperdriveResponse("hd-test-id-001", body.Name, apiHyperdriveOriginResponse{
-			Host:     "db.example.com",
-			Port:     5432,
-			Database: "mydb",
-			User:     "dbuser",
-			Scheme:   "postgresql",
-		})
+		current = newHyperdriveResponse("hd-test-id-001", body.Name, defaultHyperdriveOrigin)
 		return httpmock.NewJsonResponse(200, shared.CloudflareResponse[apiHyperdriveResponse]{
 			Success: true,
 			Result:  current,
@@ -1090,15 +1035,15 @@ func setupHyperdriveCachingDisabledMock(t *testing.T) {
 	}
 
 	httpmock.RegisterResponder(http.MethodPost,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs",
+		hyperdriveConfigsEndpoint,
 		handleWrite,
 	)
 	httpmock.RegisterResponder(http.MethodPut,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-test-id-001",
+		hyperdriveConfigEndpoint("hd-test-id-001"),
 		handleWrite,
 	)
 	httpmock.RegisterResponder(http.MethodGet,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-test-id-001",
+		hyperdriveConfigEndpoint("hd-test-id-001"),
 		func(_ *http.Request) (*http.Response, error) {
 			return httpmock.NewJsonResponse(200, shared.CloudflareResponse[apiHyperdriveResponse]{
 				Success: true,
@@ -1106,12 +1051,7 @@ func setupHyperdriveCachingDisabledMock(t *testing.T) {
 			})
 		},
 	)
-	httpmock.RegisterResponder(http.MethodDelete,
-		"https://api.cloudflare.example.com/client/v4/accounts/test-account-id/hyperdrive/configs/hd-test-id-001",
-		httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[any]{
-			Success: true,
-		}),
-	)
+	registerStandardDeleteResponder("hd-test-id-001")
 }
 
 // TestUnitHyperdriveConfig_CachingDisabled reproduces issue #58: writing only
