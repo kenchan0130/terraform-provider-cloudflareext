@@ -1210,6 +1210,31 @@ resource "cloudflareext_hyperdrive_config" "test" {
 					resource.TestCheckNoResourceAttr("cloudflareext_hyperdrive_config.test", "caching.stale_while_revalidate"),
 				),
 			},
+			{
+				// disabled -> enabled: the prior state values are null, so the
+				// plan must carry unknown (not null) and accept the server-side
+				// defaults (60/15) from the API response.
+				Config: testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "my-hyperdrive"
+  origin = {
+    host     = "db.example.com"
+    database = "mydb"
+    user     = "dbuser"
+    password_wo         = "dbpass"
+    password_wo_version = "1"
+  }
+  caching = {
+    disabled = false
+  }
+}
+`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "caching.disabled", "false"),
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "caching.max_age", "60"),
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "caching.stale_while_revalidate", "15"),
+				),
+			},
 		},
 	})
 }
@@ -1240,6 +1265,62 @@ resource "cloudflareext_hyperdrive_config" "test" {
 }
 `),
 				ExpectError: regexp.MustCompile(`(?s)max_age.+cannot be set.+disabled`),
+			},
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "my-hyperdrive"
+  origin = {
+    host     = "db.example.com"
+    database = "mydb"
+    user     = "dbuser"
+    password_wo         = "dbpass"
+    password_wo_version = "1"
+  }
+  caching = {
+    disabled               = true
+    stale_while_revalidate = 5
+  }
+}
+`),
+				ExpectError: regexp.MustCompile(`(?s)stale_while_revalidate.+cannot be set.+disabled`),
+			},
+		},
+	})
+}
+
+// TestUnitHyperdriveConfig_CachingEmptyBlock verifies that an empty caching
+// block (`caching = {}`) plans max_age / stale_while_revalidate as unknown
+// (no static schema defaults) and accepts the Cloudflare server-side
+// defaults (60/15) from the response.
+func TestUnitHyperdriveConfig_CachingEmptyBlock(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	setupHyperdriveMock()
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "my-hyperdrive"
+  origin = {
+    host     = "db.example.com"
+    database = "mydb"
+    user     = "dbuser"
+    password_wo         = "dbpass"
+    password_wo_version = "1"
+  }
+  caching = {}
+}
+`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "caching.disabled", "false"),
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "caching.max_age", "60"),
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "caching.stale_while_revalidate", "15"),
+				),
 			},
 		},
 	})

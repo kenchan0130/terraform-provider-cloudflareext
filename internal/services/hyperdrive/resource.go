@@ -7,6 +7,7 @@ import (
 	"github.com/cloudflare/cloudflare-go/v7/hyperdrive"
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -236,7 +237,8 @@ func (m nullWhenCachingDisabledModifier) MarkdownDescription(ctx context.Context
 
 func (m nullWhenCachingDisabledModifier) PlanModifyInt64(ctx context.Context, req planmodifier.Int64Request, resp *planmodifier.Int64Response) {
 	// Explicitly configured values are left as-is; the disabled+value
-	// combination is rejected by ValidateConfig with a clear error.
+	// combination is rejected by ValidateConfig (and re-checked at apply
+	// time) with a clear error.
 	if !req.ConfigValue.IsNull() {
 		return
 	}
@@ -247,11 +249,32 @@ func (m nullWhenCachingDisabledModifier) PlanModifyInt64(ctx context.Context, re
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if disabled.IsNull() || disabled.IsUnknown() || !disabled.ValueBool() {
+
+	// disabled is unknown at plan time (e.g. derived from another
+	// resource): the outcome may be either null (disabled) or a
+	// server-provided default (enabled), so the only plan value consistent
+	// with both is unknown. Leaving the state-preserved value here would
+	// make the applied state contradict the plan.
+	if disabled.IsUnknown() {
+		resp.PlanValue = types.Int64Unknown()
+		return
+	}
+	if disabled.IsNull() {
 		return
 	}
 
-	resp.PlanValue = types.Int64Null()
+	if disabled.ValueBool() {
+		resp.PlanValue = types.Int64Null()
+		return
+	}
+
+	// disabled is false. On a disabled -> enabled transition the prior
+	// state value is null; planning null would contradict the applied
+	// state once the API fills in its server-side default (60/15), so
+	// plan unknown instead.
+	if req.PlanValue.IsNull() {
+		resp.PlanValue = types.Int64Unknown()
+	}
 }
 
 func mtlsSchemaAttribute() schema.Attribute {
@@ -308,22 +331,48 @@ func (r *configResource) ValidateConfig(ctx context.Context, req resource.Valida
 	if data.Caching.Disabled.IsNull() || data.Caching.Disabled.IsUnknown() || !data.Caching.Disabled.ValueBool() {
 		return
 	}
-	if !data.Caching.MaxAge.IsNull() {
-		resp.Diagnostics.AddAttributeError(
+	// Unknown values are skipped here (they may still resolve to null);
+	// the combination is re-checked at apply time in Create/Update via
+	// validateCachingCombination once all values are resolved.
+	appendCachingCombinationErrors(data.Caching, &resp.Diagnostics)
+}
+
+// appendCachingCombinationErrors adds an attribute error for each of
+// caching.max_age / caching.stale_while_revalidate that is a known non-null
+// value while caching.disabled is true.
+func appendCachingCombinationErrors(caching *cachingModel, diags *diag.Diagnostics) {
+	if !caching.MaxAge.IsNull() && !caching.MaxAge.IsUnknown() {
+		diags.AddAttributeError(
 			path.Root("caching").AtName("max_age"),
 			"Invalid Attribute Combination",
 			"caching.max_age cannot be set when caching.disabled is true. "+
 				"The Cloudflare API rejects this combination, and disabling caching discards caching settings server-side.",
 		)
 	}
-	if !data.Caching.StaleWhileRevalidate.IsNull() {
-		resp.Diagnostics.AddAttributeError(
+	if !caching.StaleWhileRevalidate.IsNull() && !caching.StaleWhileRevalidate.IsUnknown() {
+		diags.AddAttributeError(
 			path.Root("caching").AtName("stale_while_revalidate"),
 			"Invalid Attribute Combination",
 			"caching.stale_while_revalidate cannot be set when caching.disabled is true. "+
 				"The Cloudflare API rejects this combination, and disabling caching discards caching settings server-side.",
 		)
 	}
+}
+
+// validateCachingCombination re-checks the disabled + max_age /
+// stale_while_revalidate combination at apply time with resolved config
+// values. ValidateConfig must skip unknown values (they may resolve to
+// null), so without this re-check an explicitly configured value that only
+// becomes known at apply time would be silently dropped from the request
+// while remaining in the plan — producing an inconsistent result.
+func validateCachingCombination(plan, config *configModel, diags *diag.Diagnostics) {
+	if plan.Caching == nil || config.Caching == nil {
+		return
+	}
+	if plan.Caching.Disabled.IsNull() || plan.Caching.Disabled.IsUnknown() || !plan.Caching.Disabled.ValueBool() {
+		return
+	}
+	appendCachingCombinationErrors(config.Caching, diags)
 }
 
 func (r *configResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -453,6 +502,11 @@ func (r *configResource) Create(ctx context.Context, req resource.CreateRequest,
 	}
 	r.applyWriteOnlyAttributes(&data, &config)
 
+	validateCachingCombination(&data, &config, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	params := hyperdrive.ConfigNewParams{
 		Hyperdrive: r.buildSDKParams(&data),
 	}
@@ -505,6 +559,11 @@ func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest,
 		return
 	}
 	r.applyWriteOnlyAttributes(&data, &config)
+
+	validateCachingCombination(&data, &config, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 
 	params := hyperdrive.ConfigUpdateParams{
 		Hyperdrive: r.buildSDKParams(&data),
