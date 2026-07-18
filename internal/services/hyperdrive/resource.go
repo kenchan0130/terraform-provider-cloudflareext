@@ -601,6 +601,17 @@ func (r *configResource) Delete(ctx context.Context, req resource.DeleteRequest,
 
 func (r *configResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	// Freshly imported state contains only `id`, so mapResponseToModel's
+	// `data.Caching != nil` guard would skip the API's caching object and
+	// the remote caching configuration (including disabled: true) would
+	// never reach state (issue #60). Seed an empty caching block so the
+	// Read that follows import populates it. Non-import Reads keep the
+	// guard so a config that legitimately omits the caching block stays
+	// null instead of producing an inconsistent result after apply.
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("caching"), &cachingModel{})...)
 }
 
 func (r *configResource) mapResponseToModel(result *hyperdrive.Hyperdrive, data *configModel) {

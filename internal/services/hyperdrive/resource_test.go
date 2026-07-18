@@ -462,6 +462,89 @@ resource "cloudflareext_hyperdrive_config" "test" {
 				ImportState:                          true,
 				ImportStateVerify:                    true,
 				ImportStateVerifyIdentifierAttribute: "id",
+				// Import populates the remote caching configuration (issue #60);
+				// the pre-import state has no caching block because the config omits it.
+				ImportStateVerifyIgnore: []string{"origin.password", "origin.password_wo", "origin.password_wo_version", "caching"},
+			},
+		},
+	})
+}
+
+// TestUnitHyperdriveConfig_ImportStateCachingDisabled reproduces issue #60:
+// importing a Hyperdrive config whose remote caching is disabled must
+// populate the `caching` block into state. Freshly imported state has only
+// `id` set, so mapResponseToModel's `data.Caching != nil` guard previously
+// skipped the API's caching object entirely.
+func TestUnitHyperdriveConfig_ImportStateCachingDisabled(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	setupHyperdriveCachingDisabledMock(t)
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "my-hyperdrive"
+  origin = {
+    host     = "db.example.com"
+    database = "mydb"
+    user     = "dbuser"
+    password_wo         = "dbpass"
+    password_wo_version = "1"
+  }
+  caching = {
+    disabled = true
+  }
+}
+`),
+			},
+			{
+				ResourceName:                         "cloudflareext_hyperdrive_config.test",
+				ImportState:                          true,
+				ImportStateVerify:                    true,
+				ImportStateVerifyIdentifierAttribute: "id",
+				ImportStateVerifyIgnore:              []string{"origin.password", "origin.password_wo", "origin.password_wo_version"},
+			},
+		},
+	})
+}
+
+// TestUnitHyperdriveConfig_ImportStateCachingEnabled reproduces issue #60 for
+// the caching-enabled case: importing a Hyperdrive config with caching
+// enabled (and server-side defaults for max_age / stale_while_revalidate)
+// must populate the full `caching` block into state.
+func TestUnitHyperdriveConfig_ImportStateCachingEnabled(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	setupHyperdriveMock()
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "my-hyperdrive"
+  origin = {
+    host     = "db.example.com"
+    database = "mydb"
+    user     = "dbuser"
+    password_wo         = "dbpass"
+    password_wo_version = "1"
+  }
+  caching = {}
+}
+`),
+			},
+			{
+				ResourceName:                         "cloudflareext_hyperdrive_config.test",
+				ImportState:                          true,
+				ImportStateVerify:                    true,
+				ImportStateVerifyIdentifierAttribute: "id",
 				ImportStateVerifyIgnore:              []string{"origin.password", "origin.password_wo", "origin.password_wo_version"},
 			},
 		},
