@@ -13,6 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -180,8 +181,17 @@ func originSchemaAttribute() schema.Attribute {
 
 func cachingSchemaAttribute() schema.Attribute {
 	return schema.SingleNestedAttribute{
-		Description: "The caching configuration for the Hyperdrive.",
-		Optional:    true,
+		Description: "The caching configuration for the Hyperdrive. " +
+			"When this block is omitted, the remote caching configuration is left " +
+			"unmanaged: it is tracked in state and preserved on updates (a " +
+			"full-replace PUT that omitted it would otherwise reset it to " +
+			"Cloudflare's defaults). To reset caching to Cloudflare's defaults, " +
+			"set this block explicitly.",
+		Optional: true,
+		Computed: true,
+		PlanModifiers: []planmodifier.Object{
+			preserveCachingStateWhenOmitted{},
+		},
 		Attributes: map[string]schema.Attribute{
 			"disabled": schema.BoolAttribute{
 				Description: "Whether to disable caching of SQL responses. Defaults to `false`.",
@@ -212,6 +222,43 @@ func cachingSchemaAttribute() schema.Attribute {
 			},
 		},
 	}
+}
+
+// preserveCachingStateWhenOmitted keeps the `caching` object out of the plan
+// diff when config omits it, carrying forward the prior state value instead.
+//
+// The framework marks a Computed attribute unknown in the plan when config is
+// null. An unknown *object* cannot be decoded into the pointer-based
+// `*cachingModel` (data.Caching would need a non-nil zero value with unknown
+// scalar fields, which the framework does not produce for a wholly-unknown
+// object), and unknown would also cause spurious "(known after apply)" churn
+// on every plan. Preserving the prior state value instead keeps the diff
+// empty and ensures the full-replace PUT continues to carry the prior
+// caching values, so the remote configuration is left as-is (issue #64).
+//
+// On create (no prior state), there is nothing to preserve, so the plan is
+// left null; Create's mapResponseToModel guard (`data.Caching != nil`) keeps
+// applied state consistent with that null plan, and the first Read/Refresh
+// afterward backfills the API's caching object into state.
+type preserveCachingStateWhenOmitted struct{}
+
+func (m preserveCachingStateWhenOmitted) Description(_ context.Context) string {
+	return "Preserves the prior state value when caching is omitted from config, instead of planning unknown."
+}
+
+func (m preserveCachingStateWhenOmitted) MarkdownDescription(ctx context.Context) string {
+	return m.Description(ctx)
+}
+
+func (m preserveCachingStateWhenOmitted) PlanModifyObject(ctx context.Context, req planmodifier.ObjectRequest, resp *planmodifier.ObjectResponse) {
+	if !req.ConfigValue.IsNull() {
+		return
+	}
+	if !req.StateValue.IsNull() {
+		resp.PlanValue = req.StateValue
+		return
+	}
+	resp.PlanValue = types.ObjectNull(req.PlanValue.AttributeTypes(ctx))
 }
 
 // nullWhenCachingDisabledModifier forces caching.max_age /
@@ -308,6 +355,18 @@ func originConnectionLimitSchemaAttribute() schema.Attribute {
 			"Must be between `5` and `100`.",
 		Optional: true,
 		Computed: true,
+		// Without a plan modifier, the framework marks every null-in-config
+		// Computed attribute of a resource as unknown whenever *any* other
+		// attribute in that resource requires an update (this is documented
+		// framework behavior, not specific to this attribute). That produced
+		// a spurious "(known after apply)" for origin_connection_limit on
+		// every unrelated update (e.g. removing the `caching` block per issue
+		// #64), which is exactly the class of bug UseStateForUnknown exists
+		// to prevent for Optional+Computed attributes without a static
+		// default (the `id` attribute above uses the same pattern).
+		PlanModifiers: []planmodifier.Int64{
+			int64planmodifier.UseStateForUnknown(),
+		},
 		Validators: []validator.Int64{
 			int64validator.Between(5, 100),
 		},
@@ -541,6 +600,16 @@ func (r *configResource) Read(ctx context.Context, req resource.ReadRequest, res
 		return
 	}
 
+	// Read always reflects the API's caching object into state: the API
+	// always returns one, but prior state may lack it (e.g. right after
+	// import, or for resources created before caching became Computed).
+	// Create/Update keep the plan-driven `data.Caching != nil` guard in
+	// mapResponseToModel so applied state never contradicts a planned null
+	// (issue #64).
+	if data.Caching == nil {
+		data.Caching = &cachingModel{}
+	}
+
 	r.mapResponseToModel(result, &data)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -600,6 +669,11 @@ func (r *configResource) Delete(ctx context.Context, req resource.DeleteRequest,
 }
 
 func (r *configResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	// Read now unconditionally seeds an empty caching block before mapping
+	// the API response (see Read), so the ImportState-time seeding from
+	// issue #60/#61 is no longer needed: the Read that follows import
+	// populates `caching` on its own regardless of the freshly-imported
+	// state's initial content (issue #64).
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
