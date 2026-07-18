@@ -7,6 +7,7 @@ import (
 	"github.com/cloudflare/cloudflare-go/v7/hyperdrive"
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -22,6 +23,7 @@ import (
 
 var _ resource.Resource = &configResource{}
 var _ resource.ResourceWithImportState = &configResource{}
+var _ resource.ResourceWithValidateConfig = &configResource{}
 
 type configResource struct {
 	client *shared.CloudflareClient
@@ -189,19 +191,89 @@ func cachingSchemaAttribute() schema.Attribute {
 			},
 			"max_age": schema.Int64Attribute{
 				Description: "The maximum duration (in seconds) for which items should persist in the cache. " +
-					"Defaults to `60`. Maximum value is `3600`.",
+					"When caching is enabled and this is not set, the Cloudflare API applies its default of `60`. " +
+					"Maximum value is `3600`. Cannot be set when `disabled` is `true` " +
+					"(the API rejects it with error 2007).",
 				Optional: true,
 				Computed: true,
-				Default:  int64default.StaticInt64(60),
+				PlanModifiers: []planmodifier.Int64{
+					nullWhenCachingDisabledModifier{},
+				},
 			},
 			"stale_while_revalidate": schema.Int64Attribute{
 				Description: "The number of seconds the cache may serve a stale response while revalidating. " +
-					"Defaults to `15`.",
+					"When caching is enabled and this is not set, the Cloudflare API applies its default of `15`. " +
+					"Cannot be set when `disabled` is `true` (the API rejects it with error 2007).",
 				Optional: true,
 				Computed: true,
-				Default:  int64default.StaticInt64(15),
+				PlanModifiers: []planmodifier.Int64{
+					nullWhenCachingDisabledModifier{},
+				},
 			},
 		},
+	}
+}
+
+// nullWhenCachingDisabledModifier forces caching.max_age /
+// caching.stale_while_revalidate to null in the plan when
+// caching.disabled is true and the attribute is not set in config.
+//
+// Without this, the Optional+Computed attributes would carry their prior
+// state values (from a caching-enabled era) into the plan on an
+// enabled -> disabled transition, the request builder would send them, and
+// the Cloudflare API would reject the config with error 2007
+// ("caching must not be disabled in order to set max_age"). Disabling
+// caching also discards these settings server-side, so null is the only
+// state value that stays drift-free (issue #58).
+type nullWhenCachingDisabledModifier struct{}
+
+func (m nullWhenCachingDisabledModifier) Description(_ context.Context) string {
+	return "Forces the value to null when caching.disabled is true and the attribute is not configured."
+}
+
+func (m nullWhenCachingDisabledModifier) MarkdownDescription(ctx context.Context) string {
+	return m.Description(ctx)
+}
+
+func (m nullWhenCachingDisabledModifier) PlanModifyInt64(ctx context.Context, req planmodifier.Int64Request, resp *planmodifier.Int64Response) {
+	// Explicitly configured values are left as-is; the disabled+value
+	// combination is rejected by ValidateConfig (and re-checked at apply
+	// time) with a clear error.
+	if !req.ConfigValue.IsNull() {
+		return
+	}
+
+	var disabled types.Bool
+	diags := req.Plan.GetAttribute(ctx, path.Root("caching").AtName("disabled"), &disabled)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// disabled is unknown at plan time (e.g. derived from another
+	// resource): the outcome may be either null (disabled) or a
+	// server-provided default (enabled), so the only plan value consistent
+	// with both is unknown. Leaving the state-preserved value here would
+	// make the applied state contradict the plan.
+	if disabled.IsUnknown() {
+		resp.PlanValue = types.Int64Unknown()
+		return
+	}
+	if disabled.IsNull() {
+		return
+	}
+
+	if disabled.ValueBool() {
+		resp.PlanValue = types.Int64Null()
+		return
+	}
+
+	// disabled is false. On a disabled -> enabled transition the prior
+	// state value is null; planning null would contradict the applied
+	// state once the API fills in its server-side default (60/15), so
+	// plan unknown instead.
+	if req.PlanValue.IsNull() {
+		resp.PlanValue = types.Int64Unknown()
 	}
 }
 
@@ -240,6 +312,67 @@ func originConnectionLimitSchemaAttribute() schema.Attribute {
 			int64validator.Between(5, 100),
 		},
 	}
+}
+
+// ValidateConfig rejects caching.max_age / caching.stale_while_revalidate
+// when caching.disabled is true. The Cloudflare API rejects this combination
+// with error 2007 ("caching must not be disabled in order to set max_age"),
+// so failing at plan time gives a clear error instead of an opaque apply
+// failure (issue #58).
+func (r *configResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var data configModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if data.Caching == nil {
+		return
+	}
+	if data.Caching.Disabled.IsNull() || data.Caching.Disabled.IsUnknown() || !data.Caching.Disabled.ValueBool() {
+		return
+	}
+	// Unknown values are skipped here (they may still resolve to null);
+	// the combination is re-checked at apply time in Create/Update via
+	// validateCachingCombination once all values are resolved.
+	appendCachingCombinationErrors(data.Caching, &resp.Diagnostics)
+}
+
+// appendCachingCombinationErrors adds an attribute error for each of
+// caching.max_age / caching.stale_while_revalidate that is a known non-null
+// value while caching.disabled is true.
+func appendCachingCombinationErrors(caching *cachingModel, diags *diag.Diagnostics) {
+	if !caching.MaxAge.IsNull() && !caching.MaxAge.IsUnknown() {
+		diags.AddAttributeError(
+			path.Root("caching").AtName("max_age"),
+			"Invalid Attribute Combination",
+			"caching.max_age cannot be set when caching.disabled is true. "+
+				"The Cloudflare API rejects this combination, and disabling caching discards caching settings server-side.",
+		)
+	}
+	if !caching.StaleWhileRevalidate.IsNull() && !caching.StaleWhileRevalidate.IsUnknown() {
+		diags.AddAttributeError(
+			path.Root("caching").AtName("stale_while_revalidate"),
+			"Invalid Attribute Combination",
+			"caching.stale_while_revalidate cannot be set when caching.disabled is true. "+
+				"The Cloudflare API rejects this combination, and disabling caching discards caching settings server-side.",
+		)
+	}
+}
+
+// validateCachingCombination re-checks the disabled + max_age /
+// stale_while_revalidate combination at apply time with resolved config
+// values. ValidateConfig must skip unknown values (they may resolve to
+// null), so without this re-check an explicitly configured value that only
+// becomes known at apply time would be silently dropped from the request
+// while remaining in the plan — producing an inconsistent result.
+func validateCachingCombination(plan, config *configModel, diags *diag.Diagnostics) {
+	if plan.Caching == nil || config.Caching == nil {
+		return
+	}
+	if plan.Caching.Disabled.IsNull() || plan.Caching.Disabled.IsUnknown() || !plan.Caching.Disabled.ValueBool() {
+		return
+	}
+	appendCachingCombinationErrors(config.Caching, diags)
 }
 
 func (r *configResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -309,17 +442,7 @@ func (r *configResource) buildSDKParams(data *configModel) hyperdrive.Hyperdrive
 	shared.SetParamField(&params.Origin, origin)
 
 	if data.Caching != nil {
-		cachingParam := hyperdrive.HyperdriveCachingHyperdriveHyperdriveCachingEnabledParam{}
-		if !data.Caching.Disabled.IsNull() && !data.Caching.Disabled.IsUnknown() {
-			shared.SetParamField(&cachingParam.Disabled, data.Caching.Disabled.ValueBool())
-		}
-		if !data.Caching.MaxAge.IsNull() && !data.Caching.MaxAge.IsUnknown() {
-			shared.SetParamField(&cachingParam.MaxAge, data.Caching.MaxAge.ValueInt64())
-		}
-		if !data.Caching.StaleWhileRevalidate.IsNull() && !data.Caching.StaleWhileRevalidate.IsUnknown() {
-			shared.SetParamField(&cachingParam.StaleWhileRevalidate, data.Caching.StaleWhileRevalidate.ValueInt64())
-		}
-		shared.SetParamField(&params.Caching, cachingParam)
+		shared.SetParamField(&params.Caching, buildCachingParam(data.Caching))
 	}
 
 	if data.MTLS != nil {
@@ -343,6 +466,27 @@ func (r *configResource) buildSDKParams(data *configModel) hyperdrive.Hyperdrive
 	return params
 }
 
+// buildCachingParam maps the caching model to the SDK param. The API rejects
+// max_age / stale_while_revalidate when disabled is true (error 2007), so
+// they are omitted from the request in that case (issue #58).
+func buildCachingParam(caching *cachingModel) hyperdrive.HyperdriveCachingHyperdriveHyperdriveCachingEnabledParam {
+	cachingParam := hyperdrive.HyperdriveCachingHyperdriveHyperdriveCachingEnabledParam{}
+	disabledKnown := !caching.Disabled.IsNull() && !caching.Disabled.IsUnknown()
+	if disabledKnown {
+		shared.SetParamField(&cachingParam.Disabled, caching.Disabled.ValueBool())
+	}
+	if disabledKnown && caching.Disabled.ValueBool() {
+		return cachingParam
+	}
+	if !caching.MaxAge.IsNull() && !caching.MaxAge.IsUnknown() {
+		shared.SetParamField(&cachingParam.MaxAge, caching.MaxAge.ValueInt64())
+	}
+	if !caching.StaleWhileRevalidate.IsNull() && !caching.StaleWhileRevalidate.IsUnknown() {
+		shared.SetParamField(&cachingParam.StaleWhileRevalidate, caching.StaleWhileRevalidate.ValueInt64())
+	}
+	return cachingParam
+}
+
 func (r *configResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data configModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
@@ -357,6 +501,11 @@ func (r *configResource) Create(ctx context.Context, req resource.CreateRequest,
 		return
 	}
 	r.applyWriteOnlyAttributes(&data, &config)
+
+	validateCachingCombination(&data, &config, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 
 	params := hyperdrive.ConfigNewParams{
 		Hyperdrive: r.buildSDKParams(&data),
@@ -410,6 +559,11 @@ func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest,
 		return
 	}
 	r.applyWriteOnlyAttributes(&data, &config)
+
+	validateCachingCombination(&data, &config, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 
 	params := hyperdrive.ConfigUpdateParams{
 		Hyperdrive: r.buildSDKParams(&data),
@@ -483,8 +637,18 @@ func (r *configResource) mapResponseToModel(result *hyperdrive.Hyperdrive, data 
 
 	if data.Caching != nil {
 		data.Caching.Disabled = types.BoolValue(result.Caching.Disabled)
-		data.Caching.MaxAge = types.Int64Value(result.Caching.MaxAge)
-		data.Caching.StaleWhileRevalidate = types.Int64Value(result.Caching.StaleWhileRevalidate)
+		if result.Caching.Disabled {
+			// Disabling caching discards max_age / stale_while_revalidate
+			// server-side and the API omits them from responses (the SDK
+			// then reports zero values). Null keeps state consistent with
+			// the plan (see nullWhenCachingDisabledModifier) and drift-free
+			// across refreshes (issue #58).
+			data.Caching.MaxAge = types.Int64Null()
+			data.Caching.StaleWhileRevalidate = types.Int64Null()
+		} else {
+			data.Caching.MaxAge = types.Int64Value(result.Caching.MaxAge)
+			data.Caching.StaleWhileRevalidate = types.Int64Value(result.Caching.StaleWhileRevalidate)
+		}
 	}
 
 	mapMTLSResponseToModel(&result.MTLS, data)
