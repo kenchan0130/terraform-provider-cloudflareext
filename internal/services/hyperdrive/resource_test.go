@@ -1950,3 +1950,70 @@ resource "cloudflareext_hyperdrive_config" "test" {
 		t.Errorf("expected PUT body to contain the explicit stale_while_revalidate:0 from the fallback GET (not omit it), got: %s", state.lastPutBody)
 	}
 }
+
+// TestUnitHyperdriveConfig_RefreshSkippedUpdateWithPopulatedStatePreservesRemoteCaching
+// covers the refresh-skipped update path after caching has already been
+// populated in state. Even then, an omitted caching block is unmanaged, so
+// Update must preserve the current remote values rather than replaying stale
+// state through the full-replace PUT.
+func TestUnitHyperdriveConfig_RefreshSkippedUpdateWithPopulatedStatePreservesRemoteCaching(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	state := setupHyperdriveCachingCaptureMock(t)
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		AdditionalCLIOptions: &resource.AdditionalCLIOptions{
+			Plan: resource.PlanOptions{NoRefresh: true},
+		},
+		Steps: []resource.TestStep{
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "my-hyperdrive"
+  origin = {
+    host     = "db.example.com"
+    database = "mydb"
+    user     = "dbuser"
+    password_wo         = "dbpass"
+    password_wo_version = "1"
+  }
+}
+`),
+			},
+			{
+				RefreshState: true,
+				Check:        testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "caching.max_age", "60"),
+			},
+			{
+				PreConfig: func() {
+					state.current = apiHyperdriveCachingResponse{
+						Disabled:             false,
+						MaxAge:               300,
+						StaleWhileRevalidate: 30,
+					}
+				},
+				Config: testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "my-hyperdrive-renamed"
+  origin = {
+    host     = "db.example.com"
+    database = "mydb"
+    user     = "dbuser"
+    password_wo         = "dbpass"
+    password_wo_version = "1"
+  }
+}
+`),
+			},
+		},
+	})
+
+	if !strings.Contains(string(state.lastPutBody), `"max_age":300`) {
+		t.Errorf("expected PUT body to preserve live max_age:300, got: %s", state.lastPutBody)
+	}
+	if !strings.Contains(string(state.lastPutBody), `"stale_while_revalidate":30`) {
+		t.Errorf("expected PUT body to preserve live stale_while_revalidate:30, got: %s", state.lastPutBody)
+	}
+}
