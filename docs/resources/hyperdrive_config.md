@@ -62,8 +62,10 @@ resource "cloudflareext_hyperdrive_config" "no_cache_example" {
 # Omitting the `caching` block entirely (as opposed to setting it explicitly)
 # leaves the remote caching configuration unmanaged by Terraform: whatever is
 # configured in Cloudflare is left as-is on create/update, and is tracked in
-# (but not driven from) state. To reset caching to Cloudflare's defaults,
-# add an explicit `caching = {}` block instead of omitting it.
+# (but not driven from) state. An explicit `caching = {}` block re-enables
+# caching if it was disabled, but preserves the current max_age /
+# stale_while_revalidate values; to reset those to Cloudflare's defaults, set
+# them explicitly (max_age = 60, stale_while_revalidate = 15).
 resource "cloudflareext_hyperdrive_config" "unmanaged_caching_example" {
   name = "my-hyperdrive-unmanaged-caching"
   origin = {
@@ -88,7 +90,7 @@ resource "cloudflareext_hyperdrive_config" "unmanaged_caching_example" {
 
 ### Optional
 
-- `caching` (Attributes) The caching configuration for the Hyperdrive. When this block is omitted, the remote caching configuration is left unmanaged: it is tracked in state and preserved on updates (a full-replace PUT that omitted it would otherwise reset it to Cloudflare's defaults). To reset caching to Cloudflare's defaults, set this block explicitly. (see [below for nested schema](#nestedatt--caching))
+- `caching` (Attributes) The caching configuration for the Hyperdrive. When this block is omitted, the remote caching configuration is left unmanaged: it is tracked in state and preserved on updates. An empty `caching = {}` block re-enables caching if it was disabled but preserves the current max_age / stale_while_revalidate values; to reset those to Cloudflare's defaults, set them explicitly (max_age = 60, stale_while_revalidate = 15). (see [below for nested schema](#nestedatt--caching))
 - `mtls` (Attributes) The mTLS configuration for connecting to the origin database. (see [below for nested schema](#nestedatt--mtls))
 - `origin_connection_limit` (Number) The soft maximum number of connections that Hyperdrive may establish to the origin database. Must be between `5` and `100`.
 

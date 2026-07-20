@@ -183,10 +183,11 @@ func cachingSchemaAttribute() schema.Attribute {
 	return schema.SingleNestedAttribute{
 		Description: "The caching configuration for the Hyperdrive. " +
 			"When this block is omitted, the remote caching configuration is left " +
-			"unmanaged: it is tracked in state and preserved on updates (a " +
-			"full-replace PUT that omitted it would otherwise reset it to " +
-			"Cloudflare's defaults). To reset caching to Cloudflare's defaults, " +
-			"set this block explicitly.",
+			"unmanaged: it is tracked in state and preserved on updates. " +
+			"An empty `caching = {}` block re-enables caching if it was disabled " +
+			"but preserves the current max_age / stale_while_revalidate values; " +
+			"to reset those to Cloudflare's defaults, set them explicitly " +
+			"(max_age = 60, stale_while_revalidate = 15).",
 		Optional: true,
 		Computed: true,
 		PlanModifiers: []planmodifier.Object{
@@ -207,6 +208,17 @@ func cachingSchemaAttribute() schema.Attribute {
 				Optional: true,
 				Computed: true,
 				PlanModifiers: []planmodifier.Int64{
+					// UseStateForUnknown must run first: without it, config
+					// omitting caching's children while an unrelated attribute
+					// changes elsewhere in the resource marks these Computed
+					// attributes unknown in the plan (documented framework
+					// behavior), the request builder then omits them from the
+					// full-replace PUT, and the API resets them to defaults.
+					// Preserving the prior state value keeps `caching = {}`
+					// drift-free regardless of what else in the resource
+					// changes. nullWhenCachingDisabledModifier still runs after
+					// to override to null/unknown on a disabled transition.
+					int64planmodifier.UseStateForUnknown(),
 					nullWhenCachingDisabledModifier{},
 				},
 			},
@@ -217,6 +229,7 @@ func cachingSchemaAttribute() schema.Attribute {
 				Optional: true,
 				Computed: true,
 				PlanModifiers: []planmodifier.Int64{
+					int64planmodifier.UseStateForUnknown(),
 					nullWhenCachingDisabledModifier{},
 				},
 			},
@@ -546,6 +559,32 @@ func buildCachingParam(caching *cachingModel) hyperdrive.HyperdriveCachingHyperd
 	return cachingParam
 }
 
+// cachingParamFromResponse builds a caching SDK param from a Get response,
+// for the Update fallback that fetches remote caching when the plan's
+// caching is nil (see Update). It mirrors buildCachingParam's omit-when-disabled
+// semantics by routing through a synthesized cachingModel, so the
+// "don't send max_age/stale_while_revalidate when disabled" logic isn't
+// duplicated: Disabled is always set; when true, MaxAge/StaleWhileRevalidate
+// are left null (buildCachingParam omits them regardless); when false, they
+// are set only when the response carries a non-zero value (a zero value
+// means the API omitted the field from the response).
+func cachingParamFromResponse(c *hyperdrive.HyperdriveCaching) hyperdrive.HyperdriveCachingHyperdriveHyperdriveCachingEnabledParam {
+	model := cachingModel{
+		Disabled: types.BoolValue(c.Disabled),
+	}
+	if !c.Disabled && c.MaxAge != 0 {
+		model.MaxAge = types.Int64Value(c.MaxAge)
+	} else {
+		model.MaxAge = types.Int64Null()
+	}
+	if !c.Disabled && c.StaleWhileRevalidate != 0 {
+		model.StaleWhileRevalidate = types.Int64Value(c.StaleWhileRevalidate)
+	} else {
+		model.StaleWhileRevalidate = types.Int64Null()
+	}
+	return buildCachingParam(&model)
+}
+
 func (r *configResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data configModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
@@ -638,6 +677,26 @@ func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest,
 		Hyperdrive: r.buildSDKParams(&data),
 	}
 	shared.SetParamField(&params.AccountID, r.client.AccountID)
+
+	if data.Caching == nil {
+		// State has not captured the remote caching yet — e.g. an update
+		// without a prior refresh. Fetch it so the full-replace PUT
+		// preserves it instead of resetting it to Cloudflare defaults. State
+		// intentionally stays null (plan consistency); the next Read
+		// backfills.
+		getParams := hyperdrive.ConfigGetParams{}
+		shared.SetParamField(&getParams.AccountID, r.client.AccountID)
+		current, err := r.client.Hyperdrive.Configs.Get(ctx, data.ID.ValueString(), getParams)
+		if err != nil {
+			if !shared.IsNotFoundError(err) {
+				resp.Diagnostics.AddError("Failed to read Hyperdrive config before update", err.Error())
+				return
+			}
+			// 404: fall through; the Update call will surface the real state.
+		} else {
+			shared.SetParamField(&params.Hyperdrive.Caching, cachingParamFromResponse(&current.Caching))
+		}
+	}
 
 	result, err := r.client.Hyperdrive.Configs.Update(ctx, data.ID.ValueString(), params)
 	if err != nil {
