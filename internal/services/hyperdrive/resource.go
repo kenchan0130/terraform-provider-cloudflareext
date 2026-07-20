@@ -566,18 +566,20 @@ func buildCachingParam(caching *cachingModel) hyperdrive.HyperdriveCachingHyperd
 // "don't send max_age/stale_while_revalidate when disabled" logic isn't
 // duplicated: Disabled is always set; when true, MaxAge/StaleWhileRevalidate
 // are left null (buildCachingParam omits them regardless); when false, they
-// are set only when the response carries a non-zero value (a zero value
-// means the API omitted the field from the response).
+// are set based on JSON presence (c.JSON.MaxAge.IsMissing() /
+// c.JSON.StaleWhileRevalidate.IsMissing()), not on whether the value is
+// zero, so a legitimate zero value from the API is preserved instead of
+// being dropped from the fallback PUT.
 func cachingParamFromResponse(c *hyperdrive.HyperdriveCaching) hyperdrive.HyperdriveCachingHyperdriveHyperdriveCachingEnabledParam {
 	model := cachingModel{
 		Disabled: types.BoolValue(c.Disabled),
 	}
-	if !c.Disabled && c.MaxAge != 0 {
+	if !c.Disabled && !c.JSON.MaxAge.IsMissing() {
 		model.MaxAge = types.Int64Value(c.MaxAge)
 	} else {
 		model.MaxAge = types.Int64Null()
 	}
-	if !c.Disabled && c.StaleWhileRevalidate != 0 {
+	if !c.Disabled && !c.JSON.StaleWhileRevalidate.IsMissing() {
 		model.StaleWhileRevalidate = types.Int64Value(c.StaleWhileRevalidate)
 	} else {
 		model.StaleWhileRevalidate = types.Int64Null()
@@ -688,14 +690,15 @@ func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest,
 		shared.SetParamField(&getParams.AccountID, r.client.AccountID)
 		current, err := r.client.Hyperdrive.Configs.Get(ctx, data.ID.ValueString(), getParams)
 		if err != nil {
-			if !shared.IsNotFoundError(err) {
-				resp.Diagnostics.AddError("Failed to read Hyperdrive config before update", err.Error())
-				return
-			}
-			// 404: fall through; the Update call will surface the real state.
-		} else {
-			shared.SetParamField(&params.Hyperdrive.Caching, cachingParamFromResponse(&current.Caching))
+			// Abort on any GET error, including 404. A genuinely deleted
+			// resource would make the subsequent PUT fail anyway, so
+			// aborting here loses nothing; proceeding without caching on a
+			// transient 404 would silently reset remote caching to
+			// Cloudflare defaults via the full-replace PUT.
+			resp.Diagnostics.AddError("Failed to read Hyperdrive config before update", err.Error())
+			return
 		}
+		shared.SetParamField(&params.Hyperdrive.Caching, cachingParamFromResponse(&current.Caching))
 	}
 
 	result, err := r.client.Hyperdrive.Configs.Update(ctx, data.ID.ValueString(), params)
