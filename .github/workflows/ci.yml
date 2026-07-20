@@ -6,6 +6,7 @@ on:
       - "**.go"
       - go.mod
       - go.sum
+      - version
       - aqua.yaml
       - .golangci.yml
       - ".github/workflows/ci.yml"
@@ -20,23 +21,6 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
-      - run: go mod download
-      - run: go build -v ./...
-
   docs:
     name: Check to generate documents
     runs-on: ubuntu-latest
@@ -93,7 +77,6 @@ jobs:
 
   unit:
     name: Unit Test
-    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -103,6 +86,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          fetch-depth: 2
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -119,12 +103,18 @@ jobs:
       - run: make test
         env:
           AQUA_CONFIG: ${{ github.workspace }}/aqua.yaml
+      - name: Build provider when version changes
+        run: |
+          if git diff --quiet HEAD^1 HEAD -- version; then
+            echo "version is unchanged; skipping provider build."
+            exit 0
+          fi
+          make build
 
   summary:
     name: CI Summary
     if: always()
     needs:
-      - build
       - docs
       - golangci-lint
       - unit
@@ -136,7 +126,6 @@ jobs:
       - name: Check results
         run: |
           results=(
-            "${{ needs.build.result }}"
             "${{ needs.docs.result }}"
             "${{ needs.golangci-lint.result }}"
             "${{ needs.unit.result }}"
