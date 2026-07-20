@@ -63,3 +63,9 @@ resource "cloudflareext_hyperdrive_config" "unmanaged_caching_example" {
     scheme              = "postgresql"
   }
 }
+
+# Omitting the `mtls` block leaves any remote mTLS configuration unmanaged by
+# Terraform and preserves it during full-replace updates. To explicitly remove
+# the remote mTLS configuration, set an empty block:
+#
+#   mtls = {}

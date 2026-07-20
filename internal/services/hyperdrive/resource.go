@@ -339,8 +339,15 @@ func (m nullWhenCachingDisabledModifier) PlanModifyInt64(ctx context.Context, re
 
 func mtlsSchemaAttribute() schema.Attribute {
 	return schema.SingleNestedAttribute{
-		Description: "The mTLS configuration for connecting to the origin database.",
-		Optional:    true,
+		Description: "The mTLS configuration for connecting to the origin database. " +
+			"When this block is omitted, the remote mTLS configuration is left unmanaged: " +
+			"it is tracked in state and preserved on updates. Set `mtls = {}` to remove " +
+			"the remote mTLS configuration.",
+		Optional: true,
+		Computed: true,
+		PlanModifiers: []planmodifier.Object{
+			preserveMTLSStateWhenOmitted{},
+		},
 		Attributes: map[string]schema.Attribute{
 			"ca_certificate_id": schema.StringAttribute{
 				Description: "The UUID of a custom CA certificate to use when connecting to the origin database.",
@@ -360,6 +367,33 @@ func mtlsSchemaAttribute() schema.Attribute {
 			},
 		},
 	}
+}
+
+// preserveMTLSStateWhenOmitted keeps the `mtls` object out of the plan diff
+// when config omits it, carrying forward the prior state value instead.
+// Cloudflare retains remote mTLS when a PUT omits the object (verified live
+// for issue #66), so preserving state prevents Terraform from repeatedly
+// planning a removal that the API will not perform. An explicit empty object
+// remains non-null and is sent as `mtls = {}` to clear remote mTLS.
+type preserveMTLSStateWhenOmitted struct{}
+
+func (m preserveMTLSStateWhenOmitted) Description(_ context.Context) string {
+	return "Preserves the prior state value when mtls is omitted from config, instead of planning unknown."
+}
+
+func (m preserveMTLSStateWhenOmitted) MarkdownDescription(ctx context.Context) string {
+	return m.Description(ctx)
+}
+
+func (m preserveMTLSStateWhenOmitted) PlanModifyObject(ctx context.Context, req planmodifier.ObjectRequest, resp *planmodifier.ObjectResponse) {
+	if !req.ConfigValue.IsNull() {
+		return
+	}
+	if !req.StateValue.IsNull() {
+		resp.PlanValue = req.StateValue
+		return
+	}
+	resp.PlanValue = types.ObjectNull(req.PlanValue.AttributeTypes(ctx))
 }
 
 func originConnectionLimitSchemaAttribute() schema.Attribute {
@@ -543,6 +577,10 @@ func (r *configResource) buildSDKParams(data *configModel) hyperdrive.Hyperdrive
 	return params
 }
 
+func hasMTLSResponse(mtls *hyperdrive.HyperdriveMTLS) bool {
+	return mtls.CACertificateID != "" || mtls.MTLSCertificateID != "" || mtls.Sslmode != ""
+}
+
 // buildCachingParam maps the caching model to the SDK param. The API rejects
 // max_age / stale_while_revalidate when disabled is true (error 2007), so
 // they are omitted from the request in that case (issue #58).
@@ -655,6 +693,13 @@ func (r *configResource) Read(ctx context.Context, req resource.ReadRequest, res
 	if data.Caching == nil {
 		data.Caching = &cachingModel{}
 	}
+	// Like caching, mtls is backfilled only during Read. Create/Update must
+	// retain a null plan value when config omits the block, even if the API
+	// response contains the remotely preserved object; otherwise the
+	// framework reports an inconsistent result after apply.
+	if data.MTLS == nil && hasMTLSResponse(&result.MTLS) {
+		data.MTLS = &mtlsModel{}
+	}
 
 	r.mapResponseToModel(result, &data)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -678,6 +723,15 @@ func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest,
 	validateCachingCombination(&data, &config, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
+	}
+
+	// Config omission means mtls is unmanaged. Leave it out of the request so
+	// Cloudflare preserves the live value instead of overwriting an out-of-band
+	// change with stale state when refresh is skipped.
+	unmanagedMTLS := config.MTLS == nil
+	plannedMTLS := data.MTLS
+	if unmanagedMTLS {
+		data.MTLS = nil
 	}
 
 	params := hyperdrive.ConfigUpdateParams{
@@ -720,6 +774,12 @@ func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest,
 		data.Caching = nil
 	}
 	r.mapResponseToModel(result, &data)
+	if unmanagedMTLS {
+		// The request omission preserved the live value, but the immediate PUT
+		// response may not echo it. Keep applied state equal to the known plan;
+		// the next Read will backfill the live value.
+		data.MTLS = plannedMTLS
+	}
 	if unmanagedCaching {
 		data.Caching = plannedCaching
 	}
@@ -802,7 +862,9 @@ func (r *configResource) mapResponseToModel(result *hyperdrive.Hyperdrive, data 
 		}
 	}
 
-	mapMTLSResponseToModel(&result.MTLS, data)
+	if data.MTLS != nil {
+		mapMTLSResponseToModel(&result.MTLS, data)
+	}
 
 	if result.OriginConnectionLimit > 0 {
 		data.OriginConnectionLimit = types.Int64Value(result.OriginConnectionLimit)
@@ -811,7 +873,7 @@ func (r *configResource) mapResponseToModel(result *hyperdrive.Hyperdrive, data 
 
 // mapMTLSResponseToModel reflects the API's mtls response onto data.MTLS.
 func mapMTLSResponseToModel(mtls *hyperdrive.HyperdriveMTLS, data *configModel) {
-	if mtls.CACertificateID != "" || mtls.MTLSCertificateID != "" || mtls.Sslmode != "" {
+	if hasMTLSResponse(mtls) {
 		// The API reports mtls configuration: reflect it faithfully so drift
 		// (including fields that were cleared remotely) is detected.
 		if data.MTLS == nil {
