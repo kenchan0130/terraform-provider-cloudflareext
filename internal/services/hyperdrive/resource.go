@@ -400,13 +400,18 @@ func (r *configResource) ValidateConfig(ctx context.Context, req resource.Valida
 	if data.Caching == nil {
 		return
 	}
-	if data.Caching.Disabled.IsNull() || data.Caching.Disabled.IsUnknown() || !data.Caching.Disabled.ValueBool() {
+	if !cachingExplicitlyDisabled(data.Caching) {
 		return
 	}
 	// Unknown values are skipped here (they may still resolve to null);
 	// the combination is re-checked at apply time in Create/Update via
 	// validateCachingCombination once all values are resolved.
 	appendCachingCombinationErrors(data.Caching, &resp.Diagnostics)
+}
+
+// cachingExplicitlyDisabled reports whether caching.disabled is known and true.
+func cachingExplicitlyDisabled(caching *cachingModel) bool {
+	return !caching.Disabled.IsNull() && !caching.Disabled.IsUnknown() && caching.Disabled.ValueBool()
 }
 
 // appendCachingCombinationErrors adds an attribute error for each of
@@ -441,7 +446,7 @@ func validateCachingCombination(plan, config *configModel, diags *diag.Diagnosti
 	if plan.Caching == nil || config.Caching == nil {
 		return
 	}
-	if plan.Caching.Disabled.IsNull() || plan.Caching.Disabled.IsUnknown() || !plan.Caching.Disabled.ValueBool() {
+	if !cachingExplicitlyDisabled(plan.Caching) {
 		return
 	}
 	appendCachingCombinationErrors(config.Caching, diags)
@@ -680,12 +685,12 @@ func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest,
 	}
 	shared.SetParamField(&params.AccountID, r.client.AccountID)
 
-	if data.Caching == nil {
-		// State has not captured the remote caching yet — e.g. an update
-		// without a prior refresh. Fetch it so the full-replace PUT
-		// preserves it instead of resetting it to Cloudflare defaults. State
-		// intentionally stays null (plan consistency); the next Read
-		// backfills.
+	// Config omission means caching is unmanaged. Fetch it immediately before
+	// every full-replace PUT so a refresh-skipped update cannot overwrite a
+	// newer remote value with stale state.
+	unmanagedCaching := config.Caching == nil
+	plannedCaching := data.Caching
+	if unmanagedCaching {
 		getParams := hyperdrive.ConfigGetParams{}
 		shared.SetParamField(&getParams.AccountID, r.client.AccountID)
 		current, err := r.client.Hyperdrive.Configs.Get(ctx, data.ID.ValueString(), getParams)
@@ -707,7 +712,17 @@ func (r *configResource) Update(ctx context.Context, req resource.UpdateRequest,
 		return
 	}
 
+	if unmanagedCaching {
+		// Keep the applied state equal to the known plan value. The live caching
+		// value was preserved in the PUT above, but reflecting it here could
+		// contradict a stale plan produced with refresh disabled. The next Read
+		// will backfill the live value.
+		data.Caching = nil
+	}
 	r.mapResponseToModel(result, &data)
+	if unmanagedCaching {
+		data.Caching = plannedCaching
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
