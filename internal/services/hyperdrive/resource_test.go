@@ -980,6 +980,151 @@ resource "cloudflareext_hyperdrive_config" "test" {
 	})
 }
 
+// TestUnitHyperdriveConfig_OmittedMTLSPreservesRemoteConfiguration reproduces
+// the live API behavior investigated for issue #66. Omitting `mtls` from a
+// PUT retains the remote mTLS configuration, although the immediate PUT
+// response may not echo it. Removing the block from Terraform configuration
+// should therefore leave mTLS unmanaged and omit it from subsequent PUTs.
+// This test disables refresh and changes the live mTLS value out-of-band to
+// prove Update does not overwrite it with the older value tracked in state.
+func TestUnitHyperdriveConfig_OmittedMTLSPreservesRemoteConfiguration(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	currentMTLS := apiHyperdriveMTLSResponse{}
+	currentName := "mtls-hyperdrive"
+	var lastPutBody []byte
+
+	respond := func(name string) apiHyperdriveResponse {
+		resp := newHyperdriveResponse("hd-mtls-omit-001", name, defaultHyperdriveOrigin)
+		resp.MTLS = currentMTLS
+		return resp
+	}
+	applyWrite := func(bodyBytes []byte) (string, bool, error) {
+		var body struct {
+			Name string                     `json:"name"`
+			MTLS *apiHyperdriveMTLSResponse `json:"mtls"`
+		}
+		if err := json.Unmarshal(bodyBytes, &body); err != nil {
+			return "", false, err
+		}
+		if body.MTLS != nil {
+			currentMTLS = *body.MTLS
+		}
+		currentName = body.Name
+		return body.Name, body.MTLS != nil, nil
+	}
+
+	httpmock.RegisterResponder(http.MethodPost, hyperdriveConfigsEndpoint,
+		func(req *http.Request) (*http.Response, error) {
+			bodyBytes, err := io.ReadAll(req.Body)
+			if err != nil {
+				return httpmock.NewStringResponse(400, `{"success":false}`), nil
+			}
+			name, _, err := applyWrite(bodyBytes)
+			if err != nil {
+				return httpmock.NewStringResponse(400, `{"success":false}`), nil
+			}
+			return httpmock.NewJsonResponse(200, shared.CloudflareResponse[apiHyperdriveResponse]{
+				Success: true,
+				Result:  respond(name),
+			})
+		},
+	)
+	httpmock.RegisterResponder(http.MethodPut, hyperdriveConfigEndpoint("hd-mtls-omit-001"),
+		func(req *http.Request) (*http.Response, error) {
+			bodyBytes, err := io.ReadAll(req.Body)
+			if err != nil {
+				return httpmock.NewStringResponse(400, `{"success":false}`), nil
+			}
+			lastPutBody = bodyBytes
+			name, mtlsIncluded, err := applyWrite(bodyBytes)
+			if err != nil {
+				return httpmock.NewStringResponse(400, `{"success":false}`), nil
+			}
+			result := respond(name)
+			if !mtlsIncluded {
+				// Match live API behavior: omission retains remote mTLS, but
+				// the immediate PUT response does not echo the retained object.
+				result.MTLS = apiHyperdriveMTLSResponse{}
+			}
+			return httpmock.NewJsonResponse(200, shared.CloudflareResponse[apiHyperdriveResponse]{
+				Success: true,
+				Result:  result,
+			})
+		},
+	)
+	httpmock.RegisterResponder(http.MethodGet, hyperdriveConfigEndpoint("hd-mtls-omit-001"),
+		func(_ *http.Request) (*http.Response, error) {
+			return httpmock.NewJsonResponse(200, shared.CloudflareResponse[apiHyperdriveResponse]{
+				Success: true,
+				Result:  respond(currentName),
+			})
+		},
+	)
+	registerStandardDeleteResponder("hd-mtls-omit-001")
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		AdditionalCLIOptions: &resource.AdditionalCLIOptions{
+			Plan: resource.PlanOptions{NoRefresh: true},
+		},
+		Steps: []resource.TestStep{
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "mtls-hyperdrive"
+  origin = {
+    host     = "db.example.com"
+    database = "mydb"
+    user     = "dbuser"
+    password_wo         = "dbpass"
+    password_wo_version = "1"
+  }
+  mtls = {
+    ca_certificate_id   = "ca-cert-1"
+    mtls_certificate_id = "mtls-cert-1"
+    sslmode             = "verify-full"
+  }
+}
+`),
+			},
+			{
+				PreConfig: func() {
+					// Simulate a newer remote value that stale Terraform state
+					// must not overwrite when refresh is disabled.
+					currentMTLS = apiHyperdriveMTLSResponse{
+						CACertificateID:   "ca-cert-remote",
+						MTLSCertificateID: "mtls-cert-remote",
+						Sslmode:           "verify-ca",
+					}
+				},
+				Config: testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "mtls-hyperdrive-renamed"
+  origin = {
+    host     = "db.example.com"
+    database = "mydb"
+    user     = "dbuser"
+    password_wo         = "dbpass"
+    password_wo_version = "1"
+  }
+}
+`),
+			},
+		},
+	})
+
+	if strings.Contains(string(lastPutBody), `"mtls"`) {
+		t.Errorf("expected PUT body to omit unmanaged mtls, got: %s", lastPutBody)
+	}
+	if currentMTLS.CACertificateID != "ca-cert-remote" ||
+		currentMTLS.MTLSCertificateID != "mtls-cert-remote" ||
+		currentMTLS.Sslmode != "verify-ca" {
+		t.Errorf("expected remote mtls to remain unchanged, got: %+v", currentMTLS)
+	}
+}
+
 func TestUnitHyperdriveConfig_MTLSEmptyBlockNoDrift(t *testing.T) {
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()
