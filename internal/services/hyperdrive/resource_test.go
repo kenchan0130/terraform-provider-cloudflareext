@@ -668,6 +668,39 @@ resource "cloudflareext_hyperdrive_config" "test" {
 					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "caching.stale_while_revalidate", "15"),
 				),
 			},
+			{
+				PreConfig: func() {
+					// Simulate the explicitly managed caching values being changed
+					// out-of-band. The refresh plan must restore the configured values.
+					drifted := newHyperdriveResponse("hd-test-id-001", "my-hyperdrive", defaultHyperdriveOrigin)
+					drifted.Caching.MaxAge = 120
+					drifted.Caching.StaleWhileRevalidate = 30
+					httpmock.RegisterResponder(http.MethodGet,
+						hyperdriveConfigEndpoint("hd-test-id-001"),
+						httpmock.NewJsonResponderOrPanic(200, shared.CloudflareResponse[apiHyperdriveResponse]{
+							Success: true,
+							Result:  drifted,
+						}),
+					)
+				},
+				RefreshState:       true,
+				ExpectNonEmptyPlan: true,
+				RefreshPlanChecks: resource.RefreshPlanChecks{
+					PostRefresh: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("cloudflareext_hyperdrive_config.test", plancheck.ResourceActionUpdate),
+						plancheck.ExpectKnownValue(
+							"cloudflareext_hyperdrive_config.test",
+							tfjsonpath.New("caching").AtMapKey("max_age"),
+							knownvalue.Int64Exact(60),
+						),
+						plancheck.ExpectKnownValue(
+							"cloudflareext_hyperdrive_config.test",
+							tfjsonpath.New("caching").AtMapKey("stale_while_revalidate"),
+							knownvalue.Int64Exact(15),
+						),
+					},
+				},
+			},
 		},
 	})
 }
