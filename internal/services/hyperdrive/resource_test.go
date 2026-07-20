@@ -2,8 +2,10 @@ package hyperdrive_test
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -1476,4 +1478,475 @@ resource "cloudflareext_hyperdrive_config" "test" {
 			},
 		},
 	})
+}
+
+// hyperdriveCachingCaptureState tracks the last-written caching object (so
+// GET reflects it, matching the real API) and the raw bytes of the last PUT
+// request body, so a test can assert on exactly what was sent over the wire.
+type hyperdriveCachingCaptureState struct {
+	name        string
+	current     apiHyperdriveCachingResponse
+	lastPutBody []byte
+}
+
+// setupHyperdriveCachingCaptureMock registers stateful POST/PUT/GET/DELETE
+// responders for hd-test-id-001: POST and PUT echo the request's `caching`
+// object (when present) into a `current` value that GET subsequently
+// returns, mimicking the real API's full-replace PUT semantics (a PUT that
+// omits `caching` resets it to Cloudflare's defaults of 60/15). PUT also
+// records its raw request body for the calling test to inspect.
+func setupHyperdriveCachingCaptureMock(t *testing.T) *hyperdriveCachingCaptureState {
+	t.Helper()
+
+	state := &hyperdriveCachingCaptureState{
+		name:    "my-hyperdrive",
+		current: apiHyperdriveCachingResponse{Disabled: false, MaxAge: 60, StaleWhileRevalidate: 15},
+	}
+
+	respond := func(name string) apiHyperdriveResponse {
+		resp := newHyperdriveResponse("hd-test-id-001", name, defaultHyperdriveOrigin)
+		resp.Caching = state.current
+		return resp
+	}
+
+	applyWrite := func(bodyBytes []byte) (string, error) {
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(bodyBytes, &raw); err != nil {
+			return "", err
+		}
+		var name string
+		if err := json.Unmarshal(raw["name"], &name); err != nil {
+			return "", err
+		}
+		if cachingRaw, ok := raw["caching"]; ok {
+			var c apiHyperdriveCachingResponse
+			if err := json.Unmarshal(cachingRaw, &c); err != nil {
+				return "", err
+			}
+			state.current = c
+		} else {
+			// A full-replace request that omits `caching` resets it to the
+			// Cloudflare API's server-side defaults.
+			state.current = apiHyperdriveCachingResponse{Disabled: false, MaxAge: 60, StaleWhileRevalidate: 15}
+		}
+		state.name = name
+		return name, nil
+	}
+
+	httpmock.RegisterResponder(http.MethodPost,
+		hyperdriveConfigsEndpoint,
+		func(req *http.Request) (*http.Response, error) {
+			bodyBytes, err := io.ReadAll(req.Body)
+			if err != nil {
+				return httpmock.NewStringResponse(400, `{"success":false}`), nil
+			}
+			name, err := applyWrite(bodyBytes)
+			if err != nil {
+				return httpmock.NewStringResponse(400, `{"success":false}`), nil
+			}
+			return httpmock.NewJsonResponse(200, shared.CloudflareResponse[apiHyperdriveResponse]{
+				Success: true,
+				Result:  respond(name),
+			})
+		},
+	)
+
+	httpmock.RegisterResponder(http.MethodPut,
+		hyperdriveConfigEndpoint("hd-test-id-001"),
+		func(req *http.Request) (*http.Response, error) {
+			bodyBytes, err := io.ReadAll(req.Body)
+			if err != nil {
+				return httpmock.NewStringResponse(400, `{"success":false}`), nil
+			}
+			state.lastPutBody = bodyBytes
+			name, err := applyWrite(bodyBytes)
+			if err != nil {
+				return httpmock.NewStringResponse(400, `{"success":false}`), nil
+			}
+			return httpmock.NewJsonResponse(200, shared.CloudflareResponse[apiHyperdriveResponse]{
+				Success: true,
+				Result:  respond(name),
+			})
+		},
+	)
+
+	httpmock.RegisterResponder(http.MethodGet,
+		hyperdriveConfigEndpoint("hd-test-id-001"),
+		func(_ *http.Request) (*http.Response, error) {
+			return httpmock.NewJsonResponse(200, shared.CloudflareResponse[apiHyperdriveResponse]{
+				Success: true,
+				Result:  respond(state.name),
+			})
+		},
+	)
+
+	registerStandardDeleteResponder("hd-test-id-001")
+
+	return state
+}
+
+// TestUnitHyperdriveConfig_EmptyCachingBlockUnrelatedUpdateKeepsValues
+// reproduces review finding 2: with `caching = {}` in config and an
+// unrelated attribute (`name`) changing, the framework marks
+// caching.max_age / caching.stale_while_revalidate unknown in the plan
+// (Optional+Computed attributes without a plan modifier go unknown whenever
+// any other attribute in the resource changes), so the request builder omits
+// them from the full-replace PUT and the Cloudflare API resets them to its
+// defaults (60/15) — even though `caching = {}` had already established
+// max_age = 300 / stale_while_revalidate = 30. Adding
+// int64planmodifier.UseStateForUnknown() as the first plan modifier on both
+// attributes preserves the prior state value instead, so the PUT keeps
+// carrying 300/30 regardless of what else in the resource changes.
+func TestUnitHyperdriveConfig_EmptyCachingBlockUnrelatedUpdateKeepsValues(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	state := setupHyperdriveCachingCaptureMock(t)
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "my-hyperdrive"
+  origin = {
+    host     = "db.example.com"
+    database = "mydb"
+    user     = "dbuser"
+    password_wo         = "dbpass"
+    password_wo_version = "1"
+  }
+  caching = {
+    max_age                = 300
+    stale_while_revalidate = 30
+  }
+}
+`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "caching.max_age", "300"),
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "caching.stale_while_revalidate", "30"),
+				),
+			},
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "my-hyperdrive-renamed"
+  origin = {
+    host     = "db.example.com"
+    database = "mydb"
+    user     = "dbuser"
+    password_wo         = "dbpass"
+    password_wo_version = "1"
+  }
+  caching = {}
+}
+`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "name", "my-hyperdrive-renamed"),
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "caching.max_age", "300"),
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "caching.stale_while_revalidate", "30"),
+				),
+			},
+		},
+	})
+
+	if !strings.Contains(string(state.lastPutBody), `"max_age":300`) {
+		t.Errorf("expected PUT body to contain max_age:300, got: %s", state.lastPutBody)
+	}
+	if !strings.Contains(string(state.lastPutBody), `"stale_while_revalidate":30`) {
+		t.Errorf("expected PUT body to contain stale_while_revalidate:30, got: %s", state.lastPutBody)
+	}
+}
+
+// TestUnitHyperdriveConfig_OmittedCachingBackfilledOnRefresh verifies the
+// non-import backfill path: creating with the `caching` block omitted leaves
+// `caching` null in state (Create's mapResponseToModel guard keeps applied
+// state consistent with the null plan), a subsequent refresh backfills the
+// API's caching object into state and produces an empty plan (config still
+// omits `caching`, so preserveCachingStateWhenOmitted carries the freshly
+// backfilled state value forward), and state is then populated with the
+// values from the mocked GET response (disabled=false, max_age=60,
+// stale_while_revalidate=15 from newHyperdriveResponse).
+func TestUnitHyperdriveConfig_OmittedCachingBackfilledOnRefresh(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	setupHyperdriveMock()
+
+	config := testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "my-hyperdrive"
+  origin = {
+    host     = "db.example.com"
+    database = "mydb"
+    user     = "dbuser"
+    password_wo         = "dbpass"
+    password_wo_version = "1"
+  }
+}
+`)
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config: config,
+				Check:  resource.TestCheckNoResourceAttr("cloudflareext_hyperdrive_config.test", "caching.disabled"),
+			},
+			{
+				RefreshState: true,
+				RefreshPlanChecks: resource.RefreshPlanChecks{
+					PostRefresh: []plancheck.PlanCheck{
+						plancheck.ExpectEmptyPlan(),
+					},
+				},
+			},
+			{
+				Config:   config,
+				PlanOnly: true,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "caching.disabled", "false"),
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "caching.max_age", "60"),
+					testutil.CheckResourceAttr("cloudflareext_hyperdrive_config.test", "caching.stale_while_revalidate", "15"),
+				),
+			},
+		},
+	})
+}
+
+// hyperdriveRefreshSkippedFallbackState tracks the raw bytes of the last PUT
+// request body (so a test can assert on exactly what was sent over the
+// wire) and the marker caching object that GET always returns, mimicking
+// caching having changed out-of-band since the last state refresh.
+type hyperdriveRefreshSkippedFallbackState struct {
+	name        string
+	getCaching  apiHyperdriveCachingResponse
+	lastPutBody []byte
+}
+
+// setupHyperdriveRefreshSkippedFallbackMock registers stateful POST/PUT/GET/DELETE
+// responders for hd-test-id-001. Unlike setupHyperdriveCachingCaptureMock, GET
+// always returns a fixed marker caching object regardless of what POST/PUT
+// last wrote, so a test can distinguish values that could only have reached
+// the outgoing PUT body via Update's pre-update fallback GET (see
+// cachingParamFromResponse) from values that came from the plan/state.
+func setupHyperdriveRefreshSkippedFallbackMock(t *testing.T, getCaching apiHyperdriveCachingResponse) *hyperdriveRefreshSkippedFallbackState {
+	t.Helper()
+
+	state := &hyperdriveRefreshSkippedFallbackState{
+		name:       "my-hyperdrive",
+		getCaching: getCaching,
+	}
+
+	respond := func(name string, caching apiHyperdriveCachingResponse) apiHyperdriveResponse {
+		resp := newHyperdriveResponse("hd-test-id-001", name, defaultHyperdriveOrigin)
+		resp.Caching = caching
+		return resp
+	}
+
+	httpmock.RegisterResponder(http.MethodPost,
+		hyperdriveConfigsEndpoint,
+		func(req *http.Request) (*http.Response, error) {
+			var body apiHyperdriveCreateRequest
+			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+				return httpmock.NewStringResponse(400, `{"success":false}`), nil
+			}
+			state.name = body.Name
+			// The Cloudflare API applies its server-side defaults
+			// (60/15) when `caching` is omitted from the create request.
+			return httpmock.NewJsonResponse(200, shared.CloudflareResponse[apiHyperdriveResponse]{
+				Success: true,
+				Result:  respond(state.name, apiHyperdriveCachingResponse{Disabled: false, MaxAge: 60, StaleWhileRevalidate: 15}),
+			})
+		},
+	)
+
+	httpmock.RegisterResponder(http.MethodPut,
+		hyperdriveConfigEndpoint("hd-test-id-001"),
+		func(req *http.Request) (*http.Response, error) {
+			bodyBytes, err := io.ReadAll(req.Body)
+			if err != nil {
+				return httpmock.NewStringResponse(400, `{"success":false}`), nil
+			}
+			state.lastPutBody = bodyBytes
+
+			var raw map[string]json.RawMessage
+			if err := json.Unmarshal(bodyBytes, &raw); err != nil {
+				return httpmock.NewStringResponse(400, `{"success":false}`), nil
+			}
+			var name string
+			if err := json.Unmarshal(raw["name"], &name); err != nil {
+				return httpmock.NewStringResponse(400, `{"success":false}`), nil
+			}
+			state.name = name
+
+			return httpmock.NewJsonResponse(200, shared.CloudflareResponse[apiHyperdriveResponse]{
+				Success: true,
+				Result:  respond(state.name, state.getCaching),
+			})
+		},
+	)
+
+	httpmock.RegisterResponder(http.MethodGet,
+		hyperdriveConfigEndpoint("hd-test-id-001"),
+		func(_ *http.Request) (*http.Response, error) {
+			// Always returns the marker caching object, as if it had
+			// changed out-of-band since the resource was last refreshed.
+			return httpmock.NewJsonResponse(200, shared.CloudflareResponse[apiHyperdriveResponse]{
+				Success: true,
+				Result:  respond(state.name, state.getCaching),
+			})
+		},
+	)
+
+	registerStandardDeleteResponder("hd-test-id-001")
+
+	return state
+}
+
+// TestUnitHyperdriveConfig_RefreshSkippedUpdatePreservesRemoteCaching
+// reproduces the scenario the Update fallback GET exists for: `caching` is
+// omitted from config, so state's `caching` stays null (per
+// preserveCachingStateWhenOmitted); if a plan is then produced without a
+// refresh (e.g. `terraform apply -refresh=false` right after a fresh
+// `terraform apply`, or any workflow where Terraform reuses stale state),
+// Update sees a nil plan `data.Caching` and must fetch the live caching
+// object via a GET before issuing the full-replace PUT, or the PUT would
+// omit `caching` and the Cloudflare API would silently reset it to its
+// defaults. The mocked GET returns a caching object {300, 30} that is
+// distinct from both the API's create-time default (60/15, from POST) and
+// anything in state/plan, so its presence in the captured PUT body can only
+// be explained by the fallback GET having fired.
+//
+// AdditionalCLIOptions.Plan.NoRefresh (-> `-refresh=false`) is set at the
+// TestCase level (terraform-plugin-testing v1.16.0's AdditionalCLIOptions
+// field lives on TestCase, not TestStep) to suppress the refresh that
+// terraform-plugin-testing would otherwise perform before every plan,
+// which would otherwise backfill `caching` into state via Read/GET before
+// Update ever saw a nil plan value.
+func TestUnitHyperdriveConfig_RefreshSkippedUpdatePreservesRemoteCaching(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	state := setupHyperdriveRefreshSkippedFallbackMock(t, apiHyperdriveCachingResponse{
+		Disabled:             false,
+		MaxAge:               300,
+		StaleWhileRevalidate: 30,
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		AdditionalCLIOptions: &resource.AdditionalCLIOptions{
+			Plan: resource.PlanOptions{NoRefresh: true},
+		},
+		Steps: []resource.TestStep{
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "my-hyperdrive"
+  origin = {
+    host     = "db.example.com"
+    database = "mydb"
+    user     = "dbuser"
+    password_wo         = "dbpass"
+    password_wo_version = "1"
+  }
+}
+`),
+				Check: resource.TestCheckNoResourceAttr("cloudflareext_hyperdrive_config.test", "caching.disabled"),
+			},
+			{
+				// Only `name` changes; `caching` remains omitted from
+				// config, and (with refresh suppressed for the whole
+				// TestCase) state's `caching` is still null when this
+				// step's plan is produced, so Update's fallback GET path
+				// is exercised.
+				Config: testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "my-hyperdrive-renamed"
+  origin = {
+    host     = "db.example.com"
+    database = "mydb"
+    user     = "dbuser"
+    password_wo         = "dbpass"
+    password_wo_version = "1"
+  }
+}
+`),
+			},
+		},
+	})
+
+	if !strings.Contains(string(state.lastPutBody), `"max_age":300`) {
+		t.Errorf("expected PUT body to contain max_age:300 (only obtainable via the fallback GET), got: %s", state.lastPutBody)
+	}
+	if !strings.Contains(string(state.lastPutBody), `"stale_while_revalidate":30`) {
+		t.Errorf("expected PUT body to contain stale_while_revalidate:30 (only obtainable via the fallback GET), got: %s", state.lastPutBody)
+	}
+}
+
+// TestUnitHyperdriveConfig_RefreshSkippedUpdatePreservesRemoteCachingZeroValues
+// is a regression test for review finding 1: cachingParamFromResponse used
+// to infer "the API omitted this field" from a zero Go value
+// (c.MaxAge != 0), which would drop a legitimate zero from the fallback PUT.
+// This drives the same fallback-GET path as
+// TestUnitHyperdriveConfig_RefreshSkippedUpdatePreservesRemoteCaching, but
+// the mocked GET returns max_age/stale_while_revalidate explicitly present
+// in the JSON with value 0, and asserts the PUT body still carries `0`
+// rather than silently omitting the field.
+func TestUnitHyperdriveConfig_RefreshSkippedUpdatePreservesRemoteCachingZeroValues(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	state := setupHyperdriveRefreshSkippedFallbackMock(t, apiHyperdriveCachingResponse{
+		Disabled:             false,
+		MaxAge:               0,
+		StaleWhileRevalidate: 0,
+	})
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testutil.ProtoV6ProviderFactories(),
+		AdditionalCLIOptions: &resource.AdditionalCLIOptions{
+			Plan: resource.PlanOptions{NoRefresh: true},
+		},
+		Steps: []resource.TestStep{
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "my-hyperdrive"
+  origin = {
+    host     = "db.example.com"
+    database = "mydb"
+    user     = "dbuser"
+    password_wo         = "dbpass"
+    password_wo_version = "1"
+  }
+}
+`),
+				Check: resource.TestCheckNoResourceAttr("cloudflareext_hyperdrive_config.test", "caching.disabled"),
+			},
+			{
+				Config: testutil.TestConfig(`
+resource "cloudflareext_hyperdrive_config" "test" {
+  name = "my-hyperdrive-renamed"
+  origin = {
+    host     = "db.example.com"
+    database = "mydb"
+    user     = "dbuser"
+    password_wo         = "dbpass"
+    password_wo_version = "1"
+  }
+}
+`),
+			},
+		},
+	})
+
+	if !strings.Contains(string(state.lastPutBody), `"max_age":0`) {
+		t.Errorf("expected PUT body to contain the explicit max_age:0 from the fallback GET (not omit it), got: %s", state.lastPutBody)
+	}
+	if !strings.Contains(string(state.lastPutBody), `"stale_while_revalidate":0`) {
+		t.Errorf("expected PUT body to contain the explicit stale_while_revalidate:0 from the fallback GET (not omit it), got: %s", state.lastPutBody)
+	}
 }

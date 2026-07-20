@@ -47,8 +47,10 @@ resource "cloudflareext_hyperdrive_config" "no_cache_example" {
 # Omitting the `caching` block entirely (as opposed to setting it explicitly)
 # leaves the remote caching configuration unmanaged by Terraform: whatever is
 # configured in Cloudflare is left as-is on create/update, and is tracked in
-# (but not driven from) state. To reset caching to Cloudflare's defaults,
-# add an explicit `caching = {}` block instead of omitting it.
+# (but not driven from) state. An explicit `caching = {}` block re-enables
+# caching if it was disabled, but preserves the current max_age /
+# stale_while_revalidate values; to reset those to Cloudflare's defaults, set
+# them explicitly (max_age = 60, stale_while_revalidate = 15).
 resource "cloudflareext_hyperdrive_config" "unmanaged_caching_example" {
   name = "my-hyperdrive-unmanaged-caching"
   origin = {
