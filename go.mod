@@ -3,13 +3,13 @@ module github.com/kenchan0130/terraform-provider-cloudflareext
 go 1.26.1
 
 require (
-	github.com/cloudflare/cloudflare-go/v7 v7.7.0
+	github.com/cloudflare/cloudflare-go/v7 v7.9.0
 	github.com/hashicorp/terraform-plugin-docs v0.25.0
 	github.com/hashicorp/terraform-plugin-framework v1.19.0
 	github.com/hashicorp/terraform-plugin-framework-validators v0.19.0
 	github.com/hashicorp/terraform-plugin-go v0.31.0
 	github.com/hashicorp/terraform-plugin-testing v1.16.0
-	github.com/jarcoal/httpmock v1.4.1
+	github.com/jarcoal/httpmock v1.4.2
 )
 
 require (
