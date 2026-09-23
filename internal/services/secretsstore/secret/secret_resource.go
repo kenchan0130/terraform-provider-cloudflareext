@@ -153,6 +153,14 @@ func scopeKey(scope string) string {
 	return strings.ReplaceAll(scope, "-", "_")
 }
 
+func toSDKScopes[S ~string](scopes []string) []S {
+	converted := make([]S, len(scopes))
+	for i, scope := range scopes {
+		converted[i] = S(scope)
+	}
+	return converted
+}
+
 // reconcileScopes keeps provider state consistent with the plan when the
 // Cloudflare API echoes back scopes that only differ in formatting or order.
 //
@@ -161,7 +169,7 @@ func scopeKey(scope string) string {
 // unchanged, preserving the configuration's spelling and order. Otherwise
 // (genuine remote drift) the API scopes are returned, though any element
 // equivalent to a known scope still adopts the known scope's spelling.
-func reconcileScopes(knownScopes, apiScopes []string) []string {
+func reconcileScopes[S ~string](knownScopes []string, apiScopes []S) []string {
 	remainingByKey := make(map[string][]string, len(knownScopes))
 	for _, s := range knownScopes {
 		key := scopeKey(s)
@@ -175,7 +183,7 @@ func reconcileScopes(knownScopes, apiScopes []string) []string {
 		}
 		sameSet := true
 		for _, s := range apiScopes {
-			key := scopeKey(s)
+			key := scopeKey(string(s))
 			if counts[key] == 0 {
 				sameSet = false
 				break
@@ -189,13 +197,13 @@ func reconcileScopes(knownScopes, apiScopes []string) []string {
 
 	reconciled := make([]string, len(apiScopes))
 	for i, s := range apiScopes {
-		key := scopeKey(s)
+		key := scopeKey(string(s))
 		if queue := remainingByKey[key]; len(queue) > 0 {
 			reconciled[i] = queue[0]
 			remainingByKey[key] = queue[1:]
 			continue
 		}
-		reconciled[i] = s
+		reconciled[i] = string(s)
 	}
 	return reconciled
 }
@@ -224,7 +232,7 @@ func (r *secretResource) Create(ctx context.Context, req resource.CreateRequest,
 	secretBody := secrets_store.StoreSecretNewParamsBody{}
 	shared.SetParamField(&secretBody.Name, data.Name.ValueString())
 	shared.SetParamField(&secretBody.Value, r.resolveValue(&data))
-	shared.SetParamField(&secretBody.Scopes, scopes)
+	shared.SetParamField(&secretBody.Scopes, toSDKScopes[secrets_store.StoreSecretNewParamsBodyScope](scopes))
 	if !data.Comment.IsNull() && !data.Comment.IsUnknown() {
 		shared.SetParamField(&secretBody.Comment, data.Comment.ValueString())
 	}
@@ -346,7 +354,7 @@ func (r *secretResource) Update(ctx context.Context, req resource.UpdateRequest,
 	params := secrets_store.StoreSecretEditParams{}
 	shared.SetParamField(&params.AccountID, r.client.AccountID)
 	shared.SetParamField(&params.Value, r.resolveValue(&data))
-	shared.SetParamField(&params.Scopes, scopes)
+	shared.SetParamField(&params.Scopes, toSDKScopes[secrets_store.StoreSecretEditParamsScope](scopes))
 	if !data.Comment.IsNull() && !data.Comment.IsUnknown() {
 		shared.SetParamField(&params.Comment, data.Comment.ValueString())
 	} else {
